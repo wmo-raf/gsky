@@ -184,8 +184,11 @@ func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands
 							vals = append(vals, float64(val))
 						}
 
-						sum += val
-						total++
+						// check if is nan
+						if !math.IsNaN(float64(val)) {
+							sum += val
+							total++
+						}
 
 					} else {
 						sum += 1.0
