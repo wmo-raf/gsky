@@ -82,12 +82,12 @@ func DrillDataset(in *pb.GeoRPCGranule) *pb.Result {
 
 	C.OGR_G_AssignSpatialReference(geom, selSRS)
 
-	res := readData(ds, float64(in.Width), float64(in.Height), in.Bands, geom, int(in.BandStrides), int(in.DrillDecileCount), int(in.PixelCount), in.ClipUpper, in.ClipLower)
+	res := readData(ds, float64(in.Width), float64(in.Height), in.Bands, geom, int(in.BandStrides), int(in.DrillDecileCount), int(in.PixelCount), in.PixelStat, in.ClipUpper, in.ClipLower)
 	C.OGR_G_DestroyGeometry(geom)
 	return res
 }
 
-func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands []int32, geom C.OGRGeometryH, bandStrides int, decileCount int, pixelCount int, clipUpper float32, clipLower float32) *pb.Result {
+func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands []int32, geom C.OGRGeometryH, bandStrides int, decileCount int, pixelCount int, pixelStat string, clipUpper float32, clipLower float32) *pb.Result {
 	nCols := 1 + decileCount
 
 	avgs := []*pb.TimeSeries{}
@@ -109,6 +109,22 @@ func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands
 
 	if bandStrides <= 0 {
 		bandStrides = 1
+	}
+
+	stats := map[string]bool{
+		"mean":       true,
+		"sum":        true,
+		"minmaxmean": true,
+	}
+
+	if pixelStat != "" && !stats[pixelStat] {
+		err := fmt.Errorf("Pixel Statistic Method not implemented : %s", pixelStat)
+		return &pb.Result{Error: err.Error()}
+	}
+
+	if pixelStat == "minmaxmean" {
+		// 3 columns in the output in the order min max mean
+		nCols = 3
 	}
 
 	nodata := float32(C.GDALGetRasterNoDataValue(bandH, nil))
@@ -150,6 +166,8 @@ func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands
 			sum := float32(0)
 			total := int32(0)
 
+			var vals []float64
+
 			for i := 0; i < bandSize; i++ {
 				if dsDscr.Mask[i] == 255 && dataBuf[i+bandOffset] != nodata {
 					val := dataBuf[i+bandOffset]
@@ -160,9 +178,15 @@ func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands
 					if val < clipLower || val > clipUpper {
 						continue
 					}
+
 					if pixelCount == 0 {
+						if pixelStat != "" && pixelStat != "sum" {
+							vals = append(vals, float64(val))
+						}
+
 						sum += val
 						total++
+
 					} else {
 						sum += 1.0
 					}
@@ -170,8 +194,39 @@ func readData(ds C.GDALDatasetH, rasterXSize float64, rasterYSize float64, bands
 			}
 
 			iRes := iBand * nCols
+
 			if total > 0 {
-				boundAvgs[iRes] = &pb.TimeSeries{Value: float64(sum / float32(total)), Count: total}
+				if pixelStat == "sum" {
+					// return sum
+					boundAvgs[iRes] = &pb.TimeSeries{Value: float64(sum), Count: total}
+				} else if pixelStat == "minmaxmean" {
+					// calculate min max mean
+					var max float64 = vals[0]
+					var min float64 = vals[0]
+					for _, v := range vals {
+						if max < v {
+							max = v
+						}
+						if min > v {
+							min = v
+						}
+					}
+
+					// minimum
+					boundAvgs[iRes] = &pb.TimeSeries{Value: min, Count: 1}
+
+					// maximum
+					iRes++
+					boundAvgs[iRes] = &pb.TimeSeries{Value: max, Count: 1}
+
+					// mean
+					iRes++
+					boundAvgs[iRes] = &pb.TimeSeries{Value: float64(sum / float32(total)), Count: 1}
+				} else {
+					// mean by default
+					boundAvgs[iRes] = &pb.TimeSeries{Value: float64(sum / float32(total)), Count: total}
+				}
+
 			} else {
 				boundAvgs[iRes] = &pb.TimeSeries{Value: 0, Count: 0}
 			}

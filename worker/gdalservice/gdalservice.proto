@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package gdalservice;
 
+option go_package = "/worker/gdalservice";
+
 import "google/protobuf/timestamp.proto";
 
 message GeoRPCGranule {
@@ -22,7 +24,8 @@ message GeoRPCGranule {
     float clipLower = 15;
     int32 sRSCf = 16;
     int32 pixelCount = 17;
-    string vRT = 18;
+    string pixelStat = 18;
+    string vRT = 19;
 }
 
 message Raster {

@@ -28,7 +28,7 @@ func InitDrillPipeline(ctx context.Context, apiAddr string, rpcAddrs []string, i
 	}
 }
 
-func (dp *DrillPipeline) Process(geoReq GeoDrillRequest, suffix string, templateFileName string, bandStrides int, approx bool, drillAlgorithm string, verbose bool) chan string {
+func (dp *DrillPipeline) Process(geoReq GeoDrillRequest, suffix string, templateFileName string, bandStrides int, approx bool, drillAlgorithm string, pixelStat string, verbose bool) chan string {
 	const DefaultDecileAnchorPoints = 9
 	decileCount := 0
 	pixelCount := 0
@@ -67,7 +67,7 @@ func (dp *DrillPipeline) Process(geoReq GeoDrillRequest, suffix string, template
 	dm.In = grpcDriller.Out
 
 	go i.Run(verbose)
-	go grpcDriller.Run(bandStrides, decileCount, pixelCount, verbose)
+	go grpcDriller.Run(bandStrides, decileCount, pixelCount, pixelStat, verbose)
 
 	nCols := decileCount + 1
 	var namespaces []string

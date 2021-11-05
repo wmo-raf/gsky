@@ -222,6 +222,7 @@ type Process struct {
 	DpTol          float64    `json:"dp_tol"`
 	Approx         *bool      `json:"approx,omitempty"`
 	DrillAlgorithm string     `json:"drill_algo,omitempty"`
+	PixelStat      string     `json:"pixel_stat,omitempty"`
 	WpsTimeout     int        `json:"wps_timeout"`
 }
 
