@@ -88,7 +88,7 @@ func scale(r Raster, params ScaleParams) (*ByteRaster, error) {
 				if value < 0 {
 					value = 0
 				}
-				out.Data[i] = uint8(float32(value) * scale)
+				out.Data[i] = uint8((float32(value) * scale) + 0.5)
 			}
 		}
 		return out, nil
@@ -142,7 +142,7 @@ func scale(r Raster, params ScaleParams) (*ByteRaster, error) {
 				if value < 0 {
 					value = 0
 				}
-				t.Data[i] = uint8(float32(value) * scale)
+				t.Data[i] = uint8((float32(value) * scale) + 0.5)
 			}
 		}
 		return &ByteRaster{t.NameSpace, t.Data, t.Height, t.Width, t.NoData}, nil
@@ -197,7 +197,7 @@ func scale(r Raster, params ScaleParams) (*ByteRaster, error) {
 				if value < 0 {
 					value = 0
 				}
-				out.Data[i] = uint8(float32(value) * scale)
+				out.Data[i] = uint8((float32(value) * scale) + 0.5)
 			}
 		}
 		return out, nil
@@ -252,7 +252,7 @@ func scale(r Raster, params ScaleParams) (*ByteRaster, error) {
 				if value < 0 {
 					value = 0
 				}
-				out.Data[i] = uint8(float32(value) * scale)
+				out.Data[i] = uint8((float32(value) * scale) + 0.5)
 			}
 		}
 		return out, nil
@@ -321,7 +321,7 @@ func scale(r Raster, params ScaleParams) (*ByteRaster, error) {
 				if value < 0.0 {
 					value = 0.0
 				}
-				out.Data[i] = uint8(value * scale)
+				out.Data[i] = uint8((value * scale) + 0.5)
 			}
 		}
 		return out, nil
