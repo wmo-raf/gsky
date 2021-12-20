@@ -33,6 +33,7 @@ message Raster {
     double noData = 2;
     string rasterType = 3;
     repeated int32 bbox = 4;
+    repeated int32 mask = 5;
 }
 
 message TimeSeries {

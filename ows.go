@@ -48,14 +48,15 @@ var mutex *sync.Mutex
 var fileResolver *utils.RuntimeFileResolver
 var builtinPalettes *utils.BuiltinPalettes
 var (
-	port            = flag.Int("p", 8080, "Server listening port.")
-	serverDataDir   = flag.String("data_dir", utils.DataDir, "Server data directory.")
-	serverConfigDir = flag.String("conf_dir", utils.EtcDir, "Server config directory.")
-	serverLogDir    = flag.String("log_dir", "", "Server log directory.")
-	validateConfig  = flag.Bool("check_conf", false, "Validate server config files.")
-	dumpConfig      = flag.Bool("dump_conf", false, "Dump server config files.")
-	verbose         = flag.Bool("v", false, "Verbose mode for more server outputs.")
-	version         = flag.Bool("version", false, "Get GSKY version")
+	port             = flag.Int("p", 8080, "Server listening port.")
+	serverDataDir    = flag.String("data_dir", utils.DataDir, "Server data directory.")
+	serverConfigDir  = flag.String("conf_dir", utils.EtcDir, "Server config directory.")
+	wmsClipGeomsFile = flag.String("geom_file", "", "WMS Clipping Geoms Geojson file path")
+	serverLogDir     = flag.String("log_dir", "", "Server log directory.")
+	validateConfig   = flag.Bool("check_conf", false, "Validate server config files.")
+	dumpConfig       = flag.Bool("dump_conf", false, "Dump server config files.")
+	verbose          = flag.Bool("v", false, "Verbose mode for more server outputs.")
+	version          = flag.Bool("version", false, "Get GSKY version")
 )
 
 var reWMSMap map[string]*regexp.Regexp
@@ -87,6 +88,7 @@ func init() {
 
 	utils.DataDir = *serverDataDir
 	utils.EtcDir = *serverConfigDir
+	utils.WmsClipGeomsFile = *wmsClipGeomsFile
 
 	fileResolver = utils.NewRuntimeFileResolver(utils.DataDir)
 
@@ -111,7 +113,7 @@ func init() {
 	}
 
 	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = proc.DefaultMASMaxConnsPerHost
-	confMap, err := utils.LoadAllConfigFiles(utils.EtcDir, *verbose)
+	confMap, err := utils.LoadAllConfigFiles(utils.EtcDir, utils.WmsClipGeomsFile, *verbose)
 	if err != nil {
 		Error.Printf("Error in loading config files: %v\n", err)
 		panic(err)
@@ -319,6 +321,16 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 		}
 
 	case "GetMap":
+
+		var clipFeature *geo.Feature
+
+		if params.ClipWkt != nil {
+			feat, err := utils.Wkt2Feature(*params.ClipWkt, conf)
+			if err == nil {
+				clipFeature = feat
+			}
+		}
+
 		if params.Version == nil || !utils.CheckWMSVersion(*params.Version) {
 			metricsCollector.Info.HTTPStatus = 400
 			http.Error(w, fmt.Sprintf("This server can only accept WMS requests compliant with version 1.1.1 and 1.3.0: %s", reqURL), 400)
@@ -467,14 +479,15 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 			SRSCf:               conf.Layers[idx].SRSCf,
 			MetricsCollector:    metricsCollector,
 		},
-			Collection: styleLayer.DataSource,
-			CRS:        *params.CRS,
-			BBox:       params.BBox,
-			OrigBBox:   params.BBox,
-			Height:     *params.Height,
-			Width:      *params.Width,
-			StartTime:  params.Time,
-			EndTime:    endTime,
+			Collection:  styleLayer.DataSource,
+			CRS:         *params.CRS,
+			BBox:        params.BBox,
+			OrigBBox:    params.BBox,
+			Height:      *params.Height,
+			Width:       *params.Width,
+			StartTime:   params.Time,
+			EndTime:     endTime,
+			ClipFeature: clipFeature,
 		}
 
 		if len(params.Axes) > 0 {
@@ -1721,7 +1734,7 @@ func owsHandler(w http.ResponseWriter, r *http.Request) {
 			Info.Printf("Invalid dataset namespace: %v for url: %v, err: %v\n", namespace, r.URL.Path, err)
 			http.Error(w, fmt.Sprintf("Invalid dataset namespace: %v\n", namespace), 404)
 		}
-		conf, err := utils.LoadConfigOnDemand(utils.EtcDir, namespace, *verbose)
+		conf, err := utils.LoadConfigOnDemand(utils.EtcDir, namespace, utils.WmsClipGeomsFile, *verbose)
 		if err != nil {
 			if *verbose {
 				log.Printf("LoadConfigOnDemaind error: %v", err)

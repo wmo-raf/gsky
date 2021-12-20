@@ -3,6 +3,7 @@ package processor
 import (
 	"time"
 
+	geo "github.com/nci/geometry"
 	"github.com/nci/gsky/metrics"
 	"github.com/nci/gsky/utils"
 )
@@ -71,6 +72,7 @@ type GeoTileRequest struct {
 	EndTime       *time.Time
 	Axes          map[string]*GeoTileAxis
 	Overview      *utils.Layer
+	ClipFeature   *geo.Feature
 }
 
 type GeoTileGranule struct {
@@ -92,6 +94,7 @@ type GeoTileGranule struct {
 	Polygon             string
 	RasterType          string
 	GeoLocation         *GeoLocInfo
+	ClipFeature         *geo.Feature
 }
 
 type FlexRaster struct {
@@ -105,6 +108,7 @@ type FlexRaster struct {
 	NameSpace             string
 	TimeStamp             float64
 	Polygon               string
+	GeomMask              []int32
 }
 
 type Raster interface {

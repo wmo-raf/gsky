@@ -34,6 +34,7 @@ type GeoReqContext struct {
 }
 
 const fusedBandName = "fuse"
+const wmsGeomMaskKey = "GSKY_WMS_GEOM_MASK"
 
 func InitTilePipeline(ctx context.Context, masAddr string, rpcAddr []string, maxGrpcRecvMsgSize int, polygonShardConcLimit int, maxGrpcBufferSize int, errChan chan error) *TilePipeline {
 	return &TilePipeline{

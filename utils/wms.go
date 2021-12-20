@@ -16,6 +16,8 @@ import (
 	"text/template"
 	"time"
 	"unsafe"
+
+	geo "github.com/nci/geometry"
 )
 
 const ISOZeroTime = "0001-01-01T00:00:00.000Z"
@@ -61,6 +63,7 @@ type WMSParams struct {
 	Palette     *string      `json:"palette,omitempty"`
 	ColourScale *int         `json:"colour_scale,omitempty"`
 	BandExpr    *BandExpressions
+	ClipWkt     *string `json:"clip_wkt,omitempty"`
 }
 
 // WMSRegexpMap maps WMS request parameters to
@@ -98,6 +101,62 @@ func CompileWMSRegexMap() map[string]*regexp.Regexp {
 
 func CheckWMSVersion(version string) bool {
 	return version == "1.3.0" || version == "1.1.1"
+}
+
+// Wkt2Feature returns a geo.Feature from the passed wkt string.
+// If the wkt string is not a valid feature, attempt to find from preloaded geojson
+func Wkt2Feature(wkt string, config *Config) (*geo.Feature, error) {
+
+	var feat *geo.Feature
+
+	if strings.HasPrefix(wkt, "POLYGON") {
+
+		regExp := `^POLYGON\s+(?P<points>\(\(.*\)\))$`
+
+		r := regexp.MustCompile(regExp)
+		match := r.FindStringSubmatch(wkt)
+
+		if len(match) < 1 {
+			return nil, fmt.Errorf("invalid polygon")
+		}
+
+		poly := geo.Polygon{}
+		err := poly.UnmarshalWKT(wkt)
+		if err != nil {
+			return nil, err
+		}
+
+		feat = &geo.Feature{Type: "Polygon", Geometry: &poly}
+
+		return feat, nil
+
+	} else if strings.HasPrefix(wkt, "MULTIPOLYGON") {
+
+		regExp := `^MULTIPOLYGON\s+(?P<multipolygon>\(\(.*\)\))$`
+
+		r := regexp.MustCompile(regExp)
+		match := r.FindStringSubmatch(wkt)
+
+		if len(match) < 1 {
+			return nil, fmt.Errorf("invalid multipolygon")
+		}
+
+		mPoly := geo.MultiPolygon{}
+		err := mPoly.UnmarshalWKT(wkt)
+		if err != nil {
+			return nil, err
+		}
+
+		feat = &geo.Feature{Type: "Polygon", Geometry: &mPoly}
+
+		return feat, nil
+	}
+
+	if countryFeat, ok := config.WmsClipGeoms[wkt]; ok {
+		return &countryFeat, nil
+	}
+
+	return nil, fmt.Errorf("unsupported feature type")
 }
 
 // WMSParamsChecker checks and marshals the content
@@ -171,6 +230,10 @@ func WMSParamsChecker(params map[string][]string, compREMap map[string]*regexp.R
 		if compREMap["height"].MatchString(height[0]) {
 			jsonFields = append(jsonFields, fmt.Sprintf(`"height":%s`, height[0]))
 		}
+	}
+
+	if clipWkt, clipWktOk := params["clip_wkt"]; clipWktOk && clipWkt[0] != "" {
+		jsonFields = append(jsonFields, fmt.Sprintf(`"clip_wkt":"%s"`, clipWkt[0]))
 	}
 
 	if timeRaw, timeOK := params["time"]; timeOK {

@@ -275,10 +275,9 @@ func initNoDataSlice(rType string, noDataValue float64, size int) []uint8 {
 	default:
 		return []uint8{}
 	}
-
 }
 
-func ProcessRasterStack(rasterStack map[float64][]*FlexRaster, maskMap map[float64][]bool, canvasMap map[string]*FlexRaster) (map[string]*FlexRaster, error) {
+func ProcessRasterStack(rasterStack map[float64][]*FlexRaster, maskMap map[float64][]bool, canvasMap map[string]*FlexRaster, geomMask []bool) (map[string]*FlexRaster, error) {
 	var keys []float64
 	for k := range rasterStack {
 		keys = append(keys, k)
@@ -295,10 +294,15 @@ func ProcessRasterStack(rasterStack map[float64][]*FlexRaster, maskMap map[float
 					Height: r.Height, Width: r.Width, OffX: r.OffX, OffY: r.OffY,
 					Type: r.Type, NameSpace: r.NameSpace}
 			}
-			if mask, ok := maskMap[geoStamp]; ok {
-				err = MergeMaskedRaster(r, canvasMap, mask)
+
+			if geomMask != nil {
+				err = MergeMaskedRaster(r, canvasMap, geomMask)
 			} else {
-				err = MergeMaskedRaster(r, canvasMap, make([]bool, r.Height*r.Width))
+				if mask, ok := maskMap[geoStamp]; ok {
+					err = MergeMaskedRaster(r, canvasMap, mask)
+				} else {
+					err = MergeMaskedRaster(r, canvasMap, make([]bool, r.Height*r.Width))
+				}
 			}
 
 			if err != nil {
@@ -464,6 +468,7 @@ func (enc *RasterMerger) Run(bandExpr *utils.BandExpressions, verbose bool) {
 
 		maskMap := map[float64][]bool{}
 		rasterStack := map[float64][]*FlexRaster{}
+		var geomMask []bool
 
 		for _, r := range inRasters {
 			if r == nil {
@@ -488,11 +493,22 @@ func (enc *RasterMerger) Run(bandExpr *utils.BandExpressions, verbose bool) {
 
 			}
 
+			if r.GeomMask != nil {
+				mask := make([]bool, len(r.GeomMask))
+				for i, m := range r.GeomMask {
+					if m != 255 {
+						mask[i] = true
+					}
+				}
+				geomMask = mask
+				continue
+			}
+
 			rasterStack[geoStamp] = append(rasterStack[geoStamp], r)
 		}
 
 		if len(rasterStack) > 0 {
-			tmpMap, err := ProcessRasterStack(rasterStack, maskMap, canvasMap)
+			tmpMap, err := ProcessRasterStack(rasterStack, maskMap, canvasMap, geomMask)
 			if err != nil {
 				enc.sendError(err)
 				return

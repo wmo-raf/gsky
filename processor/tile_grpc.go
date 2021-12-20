@@ -5,6 +5,7 @@ package processor
 import "C"
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -245,7 +246,7 @@ func (gi *GeoRasterGRPC) Run(varList []string, verbose bool) {
 						rawHeight = g.RawHeight
 						rawWidth = g.RawWidth
 					}
-					outRasters[idx] = &FlexRaster{ConfigPayLoad: g.ConfigPayLoad, Data: r.Raster.Data, Height: rawHeight, Width: rawWidth, DataHeight: rHeight, DataWidth: rWidth, OffX: rOffX, OffY: rOffY, Type: r.Raster.RasterType, NoData: r.Raster.NoData, NameSpace: g.NameSpace, TimeStamp: g.TimeStamp, Polygon: g.Polygon}
+					outRasters[idx] = &FlexRaster{ConfigPayLoad: g.ConfigPayLoad, Data: r.Raster.Data, Height: rawHeight, Width: rawWidth, DataHeight: rHeight, DataWidth: rWidth, OffX: rOffX, OffY: rOffY, Type: r.Raster.RasterType, NoData: r.Raster.NoData, NameSpace: g.NameSpace, TimeStamp: g.TimeStamp, Polygon: g.Polygon, GeomMask: r.Raster.Mask}
 				}(gran, iGran)
 			}
 			iGran++
@@ -284,8 +285,10 @@ func (gi *GeoRasterGRPC) Run(varList []string, verbose bool) {
 
 	for _, v := range varList {
 		if _, found := availNamespaces[v]; !found {
-			gi.sendError(fmt.Errorf("band '%v' not found", v))
-			return
+			if _, ok := availNamespaces[wmsGeomMaskKey]; !ok {
+				gi.sendError(fmt.Errorf("band '%v' not found", v))
+				return
+			}
 		}
 	}
 
@@ -341,7 +344,13 @@ func getDataSize(dataType string) (int, error) {
 
 func getRPCRaster(ctx context.Context, g *GeoTileGranule, projWKT string, geot []float64, conn *grpc.ClientConn) (*pb.Result, error) {
 	c := pb.NewGDALClient(conn)
-	granule := &pb.GeoRPCGranule{Operation: "warp", Height: float32(g.Height), Width: float32(g.Width), Path: g.Path, DstSRS: projWKT, DstGeot: geot, Bands: []int32{int32(g.BandIdx)}}
+
+	var feat []byte
+	if g.ClipFeature != nil {
+		feat, _ = json.Marshal(g.ClipFeature)
+	}
+
+	granule := &pb.GeoRPCGranule{Operation: "warp", Height: float32(g.Height), Width: float32(g.Width), Path: g.Path, DstSRS: projWKT, DstGeot: geot, Bands: []int32{int32(g.BandIdx)}, Geometry: string(feat)}
 	if g.GeoLocation != nil {
 		granule.GeoLocOpts = []string{
 			fmt.Sprintf("X_DATASET=%s", g.GeoLocation.XDSName),
