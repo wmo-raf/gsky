@@ -285,10 +285,8 @@ func (gi *GeoRasterGRPC) Run(varList []string, verbose bool) {
 
 	for _, v := range varList {
 		if _, found := availNamespaces[v]; !found {
-			if _, ok := availNamespaces[wmsGeomMaskKey]; !ok {
-				gi.sendError(fmt.Errorf("band '%v' not found", v))
-				return
-			}
+			gi.sendError(fmt.Errorf("band '%v' not found", v))
+			return
 		}
 	}
 

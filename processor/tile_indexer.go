@@ -294,11 +294,6 @@ func (p *TileIndexer) Run(verbose bool) {
 				}
 			}
 
-			if geoReq.ClipFeature != nil {
-				wg.Add(1)
-				go p.ClipGranuleGet(p.Context, geoReq, p.Error, p.Out, &wg, isEmptyTile, nil, verbose)
-			}
-
 			wg.Wait()
 		}
 	}
@@ -530,7 +525,7 @@ func (p *TileIndexer) URLIndexGet(ctx context.Context, url string, geoReq *GeoTi
 				}
 
 				if !isEmptyTile || (isEmptyTile && !bandFound) {
-					gran := &GeoTileGranule{ConfigPayLoad: geoReq.ConfigPayLoad, RawPath: ds.RawPath, Path: ds.DSName, NameSpace: namespace, VarNameSpace: ds.NameSpace, RasterType: ds.ArrayType, TimeStamp: float64(aggTimeStamp), BandIdx: bandIdx, Polygon: ds.Polygon, BBox: geoReq.BBox, Height: geoReq.Height, Width: geoReq.Width, CRS: geoReq.CRS, SrcSRS: ds.SRS, SrcGeoTransform: ds.GeoTransform, GeoLocation: ds.GeoLocation}
+					gran := &GeoTileGranule{ConfigPayLoad: geoReq.ConfigPayLoad, RawPath: ds.RawPath, Path: ds.DSName, NameSpace: namespace, VarNameSpace: ds.NameSpace, RasterType: ds.ArrayType, TimeStamp: float64(aggTimeStamp), BandIdx: bandIdx, Polygon: ds.Polygon, BBox: geoReq.BBox, Height: geoReq.Height, Width: geoReq.Width, CRS: geoReq.CRS, SrcSRS: ds.SRS, SrcGeoTransform: ds.GeoTransform, GeoLocation: ds.GeoLocation, ClipFeature: geoReq.ClipFeature}
 					if isEmptyTile {
 						gran.Path = "NULL"
 						gran.RasterType = "Byte"
@@ -605,21 +600,6 @@ func (p *TileIndexer) URLIndexGet(ctx context.Context, url string, geoReq *GeoTi
 			out <- gran
 		}
 	}
-}
-
-func (p *TileIndexer) ClipGranuleGet(ctx context.Context, geoReq *GeoTileRequest, errChan chan error, out chan *GeoTileGranule, wg *sync.WaitGroup, isEmptyTile bool, cLimiter *ConcLimiter, verbose bool) {
-	defer wg.Done()
-	if cLimiter != nil {
-		defer cLimiter.Decrease()
-	}
-
-	if p.checkCancellation() {
-		return
-	}
-
-	gran := &GeoTileGranule{ConfigPayLoad: geoReq.ConfigPayLoad, RawPath: wmsGeomMaskKey, Path: wmsGeomMaskKey, VarNameSpace: wmsGeomMaskKey, BandIdx: 1, ClipFeature: geoReq.ClipFeature, BBox: geoReq.BBox, Height: geoReq.Height, Width: geoReq.Width, CRS: geoReq.CRS}
-
-	out <- gran
 }
 
 func doSelectionByIndices(axis *DatasetAxis, tileAxis *GeoTileAxis) (bool, error) {

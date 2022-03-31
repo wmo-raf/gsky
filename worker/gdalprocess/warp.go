@@ -42,8 +42,8 @@ import (
 	"log"
 	"math"
 	"reflect"
-	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	geo "github.com/nci/geometry"
@@ -116,74 +116,6 @@ func ComputeReprojectExtent(in *pb.GeoRPCGranule) *pb.Result {
 }
 
 func WarpRaster(in *pb.GeoRPCGranule) *pb.Result {
-
-	if len(in.Geometry) > 0 {
-		var mask []int32
-
-		var feat geo.Feature
-		err := json.Unmarshal([]byte(in.Geometry), &feat)
-		if err != nil {
-			msg := fmt.Sprintf("Problem unmarshalling geometry %v", in)
-			log.Println(msg)
-			return &pb.Result{Error: msg}
-		}
-		geomGeoJSON, err := json.Marshal(feat.Geometry)
-		if err != nil {
-			msg := fmt.Sprintf("Problem marshaling GeoJSON geometry: %v", err)
-			log.Println(msg)
-			return &pb.Result{Error: msg}
-		}
-
-		cGeom := C.CString(string(geomGeoJSON))
-		defer C.free(unsafe.Pointer(cGeom))
-		geom := C.OGR_G_CreateGeometryFromJson(cGeom)
-		if geom == nil {
-			msg := fmt.Sprintf("Geometry %s could not be parsed", in.Geometry)
-			log.Println(msg)
-			return &pb.Result{Error: msg}
-		}
-
-		selSRS := C.OSRNewSpatialReference(cWGS84WKT)
-		defer C.OSRDestroySpatialReference(selSRS)
-
-		C.OGR_G_AssignSpatialReference(geom, selSRS)
-
-		xSize := int32(float64(in.Width) + 0.5)
-		ySize := int32(float64(in.Height) + 0.5)
-
-		dstBBox := []int32{0, 0, xSize, ySize}
-
-		xMin := in.DstGeot[0]                           // xMin
-		yMax := in.DstGeot[3]                           // yMax
-		xMax := xMin + float64(in.Width)*in.DstGeot[1]  // xMax
-		yMin := yMax + float64(in.Height)*in.DstGeot[5] // yMin
-
-		wgs84BBox, err := getWgs84Bbox("EPSG:3857", []float64{xMin, yMin, xMax, yMax})
-
-		if err != nil {
-			msg := "Problem getting bbox"
-			log.Println(msg)
-			return &pb.Result{Error: msg}
-		}
-
-		geot := bbox2Geot(in.Width, in.Height, wgs84BBox)
-
-		gMask, err := createGeomMask(geom, geot, dstBBox)
-
-		C.OGR_G_DestroyGeometry(geom)
-
-		if err != nil {
-			msg := "Problem getting geometry mask"
-			log.Println(msg)
-			return &pb.Result{Error: msg}
-		}
-
-		for _, m := range gMask {
-			mask = append(mask, int32(m))
-		}
-
-		return &pb.Result{Raster: &pb.Raster{Mask: mask}, Error: "OK"}
-	}
 
 	filePathC := C.CString(in.Path)
 	defer C.free(unsafe.Pointer(filePathC))
@@ -278,77 +210,187 @@ func WarpRaster(in *pb.GeoRPCGranule) *pb.Result {
 		rasterType = GDALTypes[dType]
 	}
 
-	return &pb.Result{Raster: &pb.Raster{Data: bboxCanvas, NoData: noData, RasterType: rasterType, Bbox: dstBbox}, Error: "OK", Metrics: metrics}
-}
+	var geomMaskVals []int32
 
-func getWgs84Bbox(srs string, bbox []float64) ([]float64, error) {
-	srs = strings.ToUpper(strings.TrimSpace(srs))
-	dst := "EPSG:4326"
-	if srs == dst {
-		box := make([]float64, len(bbox))
-		for i := 0; i < len(bbox); i++ {
-			box[i] = bbox[i]
+	// create geometry mask
+	if in.Geometry != "" {
+		var feat geo.Feature
+		err := json.Unmarshal([]byte(in.Geometry), &feat)
+		if err != nil {
+			return &pb.Result{Error: fmt.Sprintf("Problem unmarshalling geometry %v", in)}
 		}
-		return box, nil
+
+		// get canvas
+		maskVals, err := createGeomMask(in.Path, feat)
+
+		if err != nil {
+			return &pb.Result{Error: fmt.Sprintf("error creating geom mask")}
+		}
+
+		hSrcDS := C.GDALOpen(filePathC, C.GDAL_OF_READONLY)
+		if hSrcDS == nil {
+			return &pb.Result{Error: fmt.Sprintf("Failed to open dataset %s:", in.Path)}
+		}
+		defer C.GDALClose(hSrcDS)
+
+		geot := make([]float64, 6)
+		C.GDALGetGeoTransform(hSrcDS, (*C.double)(&geot[0]))
+
+		xSize := int(C.GDALGetRasterXSize(hSrcDS))
+		ySize := int(C.GDALGetRasterYSize(hSrcDS))
+
+		driverStr := C.CString("GTiff")
+		defer C.free(unsafe.Pointer(driverStr))
+		hDriver := C.GDALGetDriverByName(driverStr)
+
+		// create in-memory vsimem GDAL dataset. Should be cleaned automatically.
+		outFile := fmt.Sprintf("/vsimem/%d.tif", time.Now().Unix())
+		outFileC := C.CString(outFile)
+		defer C.free(unsafe.Pointer(outFileC))
+
+		var hDs C.GDALDatasetH
+		hDs = C.GDALCreate(hDriver, outFileC, C.int(xSize), C.int(ySize), 1, C.GDT_Byte, nil)
+
+		if hDs == nil {
+			return &pb.Result{Error: fmt.Sprintf("error creating raster")}
+		}
+
+		hBand := C.GDALGetRasterBand(hDs, C.int(1))
+		C.GDALSetRasterNoDataValue(hBand, C.double(200))
+
+		gerr := C.CPLErr(0)
+
+		gerr = C.GDALRasterIO(hBand, C.GF_Write, 0, 0, C.int(xSize), C.int(ySize), unsafe.Pointer(&maskVals[0]), C.int(xSize), C.int(ySize), C.GDT_Byte, 0, 0)
+
+		if gerr != 0 {
+			C.GDALClose(hDs)
+			return &pb.Result{Error: fmt.Sprintf("error writing raster band")}
+		}
+
+		// Set projection
+		hSRS := C.OSRNewSpatialReference(nil)
+		defer C.OSRDestroySpatialReference(hSRS)
+		C.OSRImportFromEPSG(hSRS, C.int(4326))
+		var projWKT *C.char
+		defer C.free(unsafe.Pointer(projWKT))
+		C.OSRExportToWkt(hSRS, &projWKT)
+		C.GDALSetProjection(hDs, projWKT)
+		// Set geotransform
+		C.GDALSetGeoTransform(hDs, (*C.double)(&geot[0]))
+
+		// close to flush dataset
+		C.GDALClose(hDs)
+
+		var pSrcGeotG *C.double
+		if len(in.SrcGeot) > 0 {
+			pSrcGeotG = (*C.double)(&in.SrcGeot[0])
+		} else {
+			pSrcGeotG = nil
+		}
+
+		var dstBboxCG [4]C.int
+		var dstBufSizeG C.int
+		var dstBufCG unsafe.Pointer
+		var noDataG float64
+		var dTypeG C.GDALDataType
+		var bytesReadCG C.size_t
+
+		// warp geometry raster
+		cErr := C.warp_operation_fast(outFileC, srcProjRefC, pSrcGeotG, pGeoLoc, dstProjRefC, (*C.double)(&in.DstGeot[0]), C.int(in.Width), C.int(in.Height), C.int(in.Bands[0]), C.int(in.SRSCf), (*unsafe.Pointer)(&dstBufCG), (*C.int)(&dstBufSizeG), (*C.int)(&dstBboxCG[0]), (*C.double)(&noDataG), (*C.GDALDataType)(&dTypeG), &bytesReadCG)
+		if cErr != 0 {
+			return &pb.Result{Error: fmt.Sprintf("warp_operation() fail: %v", int(cErr))}
+		}
+
+		bboxCanvasG := C.GoBytes(dstBufCG, dstBufSizeG)
+		C.free(dstBufCG)
+
+		// convert to int32. int32 preffered here since protobuf does not have uint8 to rep single byte ?
+		// https://stackoverflow.com/questions/47411248/define-uint8-t-variable-in-protocol-buffers-message-file
+		for _, m := range bboxCanvasG {
+			val := int32(m)
+			geomMaskVals = append(geomMaskVals, val)
+		}
 	}
 
-	var opts []*C.char
-	opts = append(opts, C.CString(fmt.Sprintf("SRC_SRS=%s", srs)))
-	opts = append(opts, C.CString(fmt.Sprintf("DST_SRS=%s", dst)))
-	for _, opt := range opts {
-		defer C.free(unsafe.Pointer(opt))
-	}
-	opts = append(opts, nil)
-	transformArg := C.GDALCreateGenImgProjTransformer2(nil, nil, &opts[0])
-	if transformArg == nil {
-		return bbox, fmt.Errorf("GDALCreateGenImgProjTransformer2 failed")
-	}
-	defer C.GDALDestroyGenImgProjTransformer(transformArg)
-
-	dx := []C.double{C.double(bbox[0]), C.double(bbox[2])}
-	dy := []C.double{C.double(bbox[1]), C.double(bbox[3])}
-	dz := make([]C.double, 2)
-	bSuccess := make([]C.int, 2)
-
-	C.GDALGenImgProjTransform(transformArg, C.int(0), 2, &dx[0], &dy[0], &dz[0], &bSuccess[0])
-	if bSuccess[0] != 0 && bSuccess[1] != 0 {
-		return []float64{float64(dx[0]), float64(dy[0]), float64(dx[1]), float64(dy[1])}, nil
-	} else {
-		return bbox, fmt.Errorf("GDALGenImgProjTransform failed")
-	}
+	return &pb.Result{Raster: &pb.Raster{Data: bboxCanvas, NoData: noData, RasterType: rasterType, Bbox: dstBbox, Mask: geomMaskVals}, Error: "OK", Metrics: metrics}
 }
 
-func bbox2Geot(width, height float32, bbox []float64) []float64 {
-	return []float64{bbox[0], (bbox[2] - bbox[0]) / float64(width), 0, bbox[3], 0, (bbox[1] - bbox[3]) / float64(height)}
-}
+func createGeomMask(filePath string, feature geo.Feature) ([]int32, error) {
+	filePathC := C.CString(filePath)
+	defer C.free(unsafe.Pointer(filePathC))
 
-func createGeomMask(g C.OGRGeometryH, geoTrans []float64, bbox []int32) ([]uint8, error) {
-	canvas := make([]uint8, bbox[2]*bbox[3])
-	memStr := fmt.Sprintf("MEM:::DATAPOINTER=%d,PIXELS=%d,LINES=%d,DATATYPE=Byte", unsafe.Pointer(&canvas[0]), bbox[2], bbox[3])
-	memStrC := C.CString(memStr)
+	geomGeoJSON, err := json.Marshal(feature.Geometry)
+
+	if err != nil {
+		return nil, err
+	}
+
+	cGeom := C.CString(string(geomGeoJSON))
+	defer C.free(unsafe.Pointer(cGeom))
+	geom := C.OGR_G_CreateGeometryFromJson(cGeom)
+
+	// assign spatial reference
+	selSRS := C.OSRNewSpatialReference(cWGS84WKT)
+	defer C.OSRDestroySpatialReference(selSRS)
+	C.OGR_G_AssignSpatialReference(geom, selSRS)
+
+	gCopy := C.OGR_G_Buffer(geom, C.double(0.0), C.int(30))
+	if C.OGR_G_IsEmpty(gCopy) == C.int(1) {
+		gCopy = C.OGR_G_Clone(geom)
+	}
+
+	defer C.OGR_G_DestroyGeometry(gCopy)
+
+	hSrcDS := C.GDALOpen(filePathC, C.GDAL_OF_READONLY)
+	if hSrcDS == nil {
+		log.Fatalf("Failed to open dataset %s:", filePath)
+	}
+	defer C.GDALClose(hSrcDS)
+
+	if C.GoString(C.GDALGetProjectionRef(hSrcDS)) != "" {
+		desSRS := C.OSRNewSpatialReference(C.GDALGetProjectionRef(hSrcDS))
+		defer C.OSRDestroySpatialReference(desSRS)
+		srcSRS := C.OSRNewSpatialReference(cWGS84WKT)
+		defer C.OSRDestroySpatialReference(srcSRS)
+		C.OSRSetAxisMappingStrategy(srcSRS, C.OAMS_TRADITIONAL_GIS_ORDER)
+		C.OSRSetAxisMappingStrategy(desSRS, C.OAMS_TRADITIONAL_GIS_ORDER)
+		trans := C.OCTNewCoordinateTransformation(srcSRS, desSRS)
+		C.OGR_G_Transform(gCopy, trans)
+		C.OCTDestroyCoordinateTransformation(trans)
+	}
+
+	geot := make([]float64, 6)
+	C.GDALGetGeoTransform(hSrcDS, (*C.double)(&geot[0]))
+
+	xSize := int(C.GDALGetRasterXSize(hSrcDS))
+	ySize := int(C.GDALGetRasterYSize(hSrcDS))
+
+	canvasG := make([]uint8, xSize*ySize)
+
+	// initialize with zeros
+	for i := range canvasG {
+		canvasG[i] = 0
+	}
+
+	memStrC := C.CString(fmt.Sprintf("MEM:::DATAPOINTER=%d,PIXELS=%d,LINES=%d,DATATYPE=Byte", unsafe.Pointer(&canvasG[0]), C.int(xSize), C.int(ySize)))
 	defer C.free(unsafe.Pointer(memStrC))
-	hDstDS := C.GDALOpen(memStrC, C.GA_Update)
-	if hDstDS == nil {
+	hMaskDS := C.GDALOpen(memStrC, C.GA_Update)
+	if hMaskDS == nil {
 		return nil, fmt.Errorf("Couldn't create memory driver")
 	}
-	defer C.GDALClose(hDstDS)
-
-	// Set projection
-	hSRS := C.OSRNewSpatialReference(nil)
-	defer C.OSRDestroySpatialReference(hSRS)
-	C.OSRImportFromEPSG(hSRS, C.int(4326))
-	var projWKT *C.char
-	defer C.free(unsafe.Pointer(projWKT))
-	C.OSRExportToWkt(hSRS, &projWKT)
-	C.GDALSetProjection(hDstDS, projWKT)
+	defer C.GDALClose(hMaskDS)
 
 	var gdalErr C.CPLErr
 
-	if gdalErr = C.GDALSetGeoTransform(hDstDS, (*C.double)(&geoTrans[0])); gdalErr != 0 {
-		return nil, fmt.Errorf("Couldn't set the geotransform on the destination dataset %v", gdalErr)
+	if gdalErr = C.GDALSetProjection(hMaskDS, C.GDALGetProjectionRef(hSrcDS)); gdalErr != 0 {
+		return nil, fmt.Errorf("couldn't set a projection in the mem raster %v", gdalErr)
 	}
 
-	ic := C.OGR_G_Clone(g)
+	if gdalErr = C.GDALSetGeoTransform(hMaskDS, (*C.double)(&geot[0])); gdalErr != 0 {
+		return nil, fmt.Errorf("couldn't set the geotransform on the destination dataset %v", gdalErr)
+	}
+
+	ic := C.OGR_G_Clone(geom)
 	defer C.OGR_G_DestroyGeometry(ic)
 
 	geomBurnValue := C.double(255)
@@ -358,9 +400,17 @@ func createGeomMask(g C.OGRGeometryH, geoTrans []float64, bbox []int32) ([]uint8
 	opts := []*C.char{C.CString("ALL_TOUCHED=TRUE"), nil}
 	defer C.free(unsafe.Pointer(opts[0]))
 
-	if gdalErr = C.GDALRasterizeGeometries(hDstDS, 1, &panBandList[0], 1, &pahGeomList[0], nil, nil, &geomBurnValue, &opts[0], nil, nil); gdalErr != 0 {
-		return nil, fmt.Errorf("GDALRasterizeGeometry error %v", gdalErr)
+	// rasterize
+	if gdalErr = C.GDALRasterizeGeometries(hMaskDS, 1, &panBandList[0], 1, &pahGeomList[0], nil, nil, &geomBurnValue, &opts[0], nil, nil); gdalErr != 0 {
+		return nil, fmt.Errorf("Error Rasterizing %v", gdalErr)
 	}
 
-	return canvas, nil
+	var maskVals []int32
+
+	for _, m := range canvasG {
+		val := int32(m)
+		maskVals = append(maskVals, val)
+	}
+
+	return maskVals, nil
 }

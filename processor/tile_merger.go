@@ -191,7 +191,6 @@ func MergeMaskedRaster(r *FlexRaster, canvasMap map[string]*FlexRaster, mask []b
 		header.Cap /= SizeofFloat32
 		data := *(*[]float32)(unsafe.Pointer(&header))
 		nodata := float32(r.NoData)
-
 		if r.TimeStamp < canvasMap[r.NameSpace].TimeStamp {
 			iSrc := 0
 			for ir := 0; ir < r.DataHeight; ir++ {
@@ -275,9 +274,10 @@ func initNoDataSlice(rType string, noDataValue float64, size int) []uint8 {
 	default:
 		return []uint8{}
 	}
+
 }
 
-func ProcessRasterStack(rasterStack map[float64][]*FlexRaster, maskMap map[float64][]bool, canvasMap map[string]*FlexRaster, geomMask []bool) (map[string]*FlexRaster, error) {
+func ProcessRasterStack(rasterStack map[float64][]*FlexRaster, maskMap map[float64][]bool, canvasMap map[string]*FlexRaster) (map[string]*FlexRaster, error) {
 	var keys []float64
 	for k := range rasterStack {
 		keys = append(keys, k)
@@ -294,15 +294,10 @@ func ProcessRasterStack(rasterStack map[float64][]*FlexRaster, maskMap map[float
 					Height: r.Height, Width: r.Width, OffX: r.OffX, OffY: r.OffY,
 					Type: r.Type, NameSpace: r.NameSpace}
 			}
-
-			if geomMask != nil {
-				err = MergeMaskedRaster(r, canvasMap, geomMask)
+			if mask, ok := maskMap[geoStamp]; ok {
+				err = MergeMaskedRaster(r, canvasMap, mask)
 			} else {
-				if mask, ok := maskMap[geoStamp]; ok {
-					err = MergeMaskedRaster(r, canvasMap, mask)
-				} else {
-					err = MergeMaskedRaster(r, canvasMap, make([]bool, r.Height*r.Width))
-				}
+				err = MergeMaskedRaster(r, canvasMap, make([]bool, r.Height*r.Width))
 			}
 
 			if err != nil {
@@ -468,7 +463,6 @@ func (enc *RasterMerger) Run(bandExpr *utils.BandExpressions, verbose bool) {
 
 		maskMap := map[float64][]bool{}
 		rasterStack := map[float64][]*FlexRaster{}
-		var geomMask []bool
 
 		for _, r := range inRasters {
 			if r == nil {
@@ -493,6 +487,7 @@ func (enc *RasterMerger) Run(bandExpr *utils.BandExpressions, verbose bool) {
 
 			}
 
+			// geom mask overrides datasource mask
 			if r.GeomMask != nil {
 				mask := make([]bool, len(r.GeomMask))
 				for i, m := range r.GeomMask {
@@ -500,15 +495,14 @@ func (enc *RasterMerger) Run(bandExpr *utils.BandExpressions, verbose bool) {
 						mask[i] = true
 					}
 				}
-				geomMask = mask
-				continue
+				maskMap[geoStamp] = mask
 			}
 
 			rasterStack[geoStamp] = append(rasterStack[geoStamp], r)
 		}
 
 		if len(rasterStack) > 0 {
-			tmpMap, err := ProcessRasterStack(rasterStack, maskMap, canvasMap, geomMask)
+			tmpMap, err := ProcessRasterStack(rasterStack, maskMap, canvasMap)
 			if err != nil {
 				enc.sendError(err)
 				return
