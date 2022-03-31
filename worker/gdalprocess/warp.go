@@ -315,7 +315,7 @@ func WarpRaster(in *pb.GeoRPCGranule) *pb.Result {
 	return &pb.Result{Raster: &pb.Raster{Data: bboxCanvas, NoData: noData, RasterType: rasterType, Bbox: dstBbox, Mask: geomMaskVals}, Error: "OK", Metrics: metrics}
 }
 
-func createGeomMask(filePath string, feature geo.Feature) ([]int32, error) {
+func createGeomMask(filePath string, feature geo.Feature) ([]uint8, error) {
 	filePathC := C.CString(filePath)
 	defer C.free(unsafe.Pointer(filePathC))
 
@@ -405,10 +405,10 @@ func createGeomMask(filePath string, feature geo.Feature) ([]int32, error) {
 		return nil, fmt.Errorf("Error Rasterizing %v", gdalErr)
 	}
 
-	var maskVals []int32
+	var maskVals []uint8
 
 	for _, m := range canvasG {
-		val := int32(m)
+		val := uint8(m)
 		maskVals = append(maskVals, val)
 	}
 
