@@ -23,6 +23,9 @@ import (
 const ISOZeroTime = "0001-01-01T00:00:00.000Z"
 const WeightedTimeAxis = "weighted_time"
 
+// supported formats. Second one added for third party apps compatibility e.g QGIS
+var ISOTimeFormats = []string{ISOFormat, "2006-01-02T15:04:05Z"}
+
 type AxisIdxSelector struct {
 	Start   *int
 	End     *int
@@ -82,7 +85,7 @@ var WMSRegexpMap = map[string]string{"service": `^WMS$`,
 	"width":   `^[0-9]+$`,
 	"height":  `^[0-9]+$`,
 	"axis":    `^[A-Za-z_][A-Za-z0-9_]*$`,
-	"time":    `^\d{4}-(?:1[0-2]|0[1-9])-(?:3[01]|0[1-9]|[12][0-9])T[0-2]\d:[0-5]\d:[0-5]\d\.\d+Z$`}
+	"time":    `^\d{4}-(?:1[0-2]|0[1-9])-(?:3[01]|0[1-9]|[12][0-9])T[0-2]\d:[0-5]\d:[0-5]\d(Z|\.\d+Z)$`}
 
 // BBox2Geot return the geotransform from the
 // parameters received in a WMS GetMap request
@@ -256,7 +259,7 @@ func WMSParamsChecker(params map[string][]string, compREMap map[string]*regexp.R
 			if len(times) > 1 {
 				axis := &AxisParam{Name: WeightedTimeAxis, Aggregate: 0}
 				for _, tStr := range times {
-					t, err := time.Parse(ISOFormat, tStr)
+					t, err := parseTime(tStr)
 					if err != nil {
 						return wmsParams, fmt.Errorf("invalid time format")
 					}
@@ -649,4 +652,14 @@ func FindLayerBestOverview(layer *Layer, reqRes float64, allowExtrapolation bool
 		bestOvr = iOvr
 	}
 	return bestOvr
+}
+
+func parseTime(input string) (time.Time, error) {
+	for _, format := range ISOTimeFormats {
+		t, err := time.Parse(format, input)
+		if err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time format")
 }
