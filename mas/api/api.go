@@ -18,15 +18,16 @@ import (
 )
 
 var (
-	db       *sql.DB
-	mc       *memcache.Client
-	dbHost   = flag.String("dbhost", "/var/run/postgresql", "dbhost")
-	dbName   = flag.String("database", "mas", "database name")
-	dbUser   = flag.String("user", "api", "database user name")
-	dbPool   = flag.Int("pool", 8, "database pool size")
-	dbLimit  = flag.Int("limit", 64, "database concurrent requests")
-	httpPort = flag.Int("port", 8080, "http port")
-	mcURI    = flag.String("memcache", "", "memcache uri host:port")
+	db         *sql.DB
+	mc         *memcache.Client
+	dbHost     = flag.String("dbhost", "/var/run/postgresql", "dbhost")
+	dbName     = flag.String("database", "mas", "database name")
+	dbUser     = flag.String("user", "api", "database user name")
+	dbPassword = flag.String("password", "", "database user password")
+	dbPool     = flag.Int("pool", 8, "database pool size")
+	dbLimit    = flag.Int("limit", 64, "database concurrent requests")
+	httpPort   = flag.Int("port", 8080, "http port")
+	mcURI      = flag.String("memcache", "", "memcache uri host:port")
 )
 
 // Spit out a simple JSON-formatted error message for Content-Type: application/json
@@ -185,6 +186,10 @@ func main() {
 	log.Printf("dbHost %s dbUser %s dbName %s dbPool %d httpPort %d", *dbHost, *dbUser, *dbName, *dbPool, *httpPort)
 
 	dbinfo := fmt.Sprintf("user=%s host=%s dbname=%s sslmode=disable", *dbUser, *dbHost, *dbName)
+
+	if *dbPassword != "" {
+		dbinfo = fmt.Sprintf("%s password=%s", dbinfo, *dbPassword)
+	}
 
 	var err error
 	db, err = sql.Open("postgres", dbinfo)
