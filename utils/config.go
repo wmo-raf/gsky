@@ -21,7 +21,6 @@ import (
 
 	goeval "github.com/edisonguo/govaluate"
 	"github.com/edisonguo/jet"
-	geo "github.com/nci/geometry"
 	pb "github.com/nci/gsky/worker/gdalservice"
 	geojson "github.com/paulmach/go.geojson"
 	"golang.org/x/net/context"
@@ -31,7 +30,6 @@ import (
 var EtcDir = "."
 var DataDir = "."
 var GSKYVersion = "."
-var WmsClipGeomsFile = ""
 
 const ReservedMemorySize = 1.5 * 1024 * 1024 * 1024
 const ColourLinearScale = 0
@@ -565,7 +563,7 @@ func symWalk(rootDir string, symlink string, walkFunc filepath.WalkFunc) error {
 	})
 }
 
-func LoadConfigOnDemand(searchPath string, namespace string, wmsClipGeomsFile string, verbose bool) (map[string]*Config, error) {
+func LoadConfigOnDemand(searchPath string, namespace string, verbose bool) (map[string]*Config, error) {
 	searchPathList := strings.Split(searchPath, ":")
 	for _, rootDir := range searchPathList {
 		rootDir = strings.TrimSpace(rootDir)
@@ -585,7 +583,7 @@ func LoadConfigOnDemand(searchPath string, namespace string, wmsClipGeomsFile st
 		}
 
 		if _, err := os.Stat(absPath); err == nil {
-			conf, err := LoadAllConfigFiles(absPath, wmsClipGeomsFile, verbose)
+			conf, err := LoadAllConfigFiles(absPath, verbose)
 			if err != nil {
 				return nil, err
 			}
@@ -703,7 +701,7 @@ func LoadConfigFromMAS(masAddress, namespace string, rootConfig *Config, verbose
 	return configMap, nil
 }
 
-func LoadAllConfigFiles(searchPath string, wmsClipGeomsFile string, verbose bool) (map[string]*Config, error) {
+func LoadAllConfigFiles(searchPath string, verbose bool) (map[string]*Config, error) {
 	var err error
 	configMap := make(map[string]*Config)
 	searchPathList := strings.Split(searchPath, ":")
@@ -776,58 +774,6 @@ func LoadAllConfigFiles(searchPath string, wmsClipGeomsFile string, verbose bool
 		return nil, err
 	}
 
-	geomsConfigMap := map[string]geo.Feature{}
-
-	if wmsClipGeomsFile != "" {
-		_, err := os.Stat(wmsClipGeomsFile)
-		if err != nil {
-			err = fmt.Errorf("WMS Geoms Clip File not found: %s", wmsClipGeomsFile)
-			return nil, err
-		}
-
-		featCol, err := parseGeojson(wmsClipGeomsFile)
-
-		if err != nil {
-			err = fmt.Errorf("Error parsing geojson at %s", wmsClipGeomsFile)
-			return nil, err
-		}
-
-		if featCol != nil {
-			for _, feat := range featCol.Features {
-				featId, err := feat.PropertyString("ID")
-
-				if err != nil {
-					err = fmt.Errorf("all Geojson features must contain and ID property %s", wmsClipGeomsFile)
-					return nil, err
-				}
-
-				if feat.Geometry.IsPolygon() || feat.Geometry.IsMultiPolygon() {
-					featJson, err := feat.MarshalJSON()
-
-					if err != nil {
-						err = fmt.Errorf("error marshalling feature %s", featId)
-						return nil, err
-					}
-
-					var geoFeat geo.Feature
-
-					err = json.Unmarshal(featJson, &geoFeat)
-
-					if err != nil {
-						err = fmt.Errorf("error unmarshalling feature %s", featId)
-						return nil, err
-					}
-
-					geomsConfigMap[featId] = geoFeat
-
-				} else {
-					err = fmt.Errorf("all geojson features must be polygon or multipolygon %s", wmsClipGeomsFile)
-					return nil, err
-				}
-			}
-		}
-	}
-
 	for _, config := range configMap {
 		if config == nil {
 			continue
@@ -896,7 +842,7 @@ func PostprocessServiceConfig(config *Config, confMap map[string]*Config, verbos
 
 	if conf, found := confMap["."]; found {
 		if conf == nil {
-			cm, err := LoadConfigOnDemand(EtcDir, ".", WmsClipGeomsFile, verbose)
+			cm, err := LoadConfigOnDemand(EtcDir, ".", verbose)
 			if err == nil {
 				conf = cm["."]
 			}
@@ -2027,7 +1973,7 @@ func WatchConfig(infoLog, errLog *log.Logger, configMap *sync.Map, verbose bool)
 			select {
 			case <-sighup:
 				infoLog.Println("Caught SIGHUP, reloading config...")
-				confMap, err := LoadAllConfigFiles(EtcDir, WmsClipGeomsFile, verbose)
+				confMap, err := LoadAllConfigFiles(EtcDir, verbose)
 				if err != nil {
 					errLog.Printf("Error in loading config files: %v\n", err)
 					continue
