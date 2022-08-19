@@ -236,7 +236,6 @@ func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam str
 	var feat geo.Feature
 
 	if wkbGeomType == C.wkbPolygon {
-
 		poly := geo.Polygon{}
 		err := poly.UnmarshalWKT(geomWKT)
 
@@ -250,7 +249,7 @@ func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam str
 		if err != nil {
 			return nil, err
 		}
-		feat = geo.Feature{Type: "Polygon", Geometry: &mPoly}
+		feat = geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
 	}
 	return &feat, nil
 }
@@ -328,8 +327,8 @@ func WMSParamsChecker(params map[string][]string, compREMap map[string]*regexp.R
 		}
 	}
 
-	if clipWkt, clipWktOk := params["clip_wkt"]; clipWktOk && clipWkt[0] != "" {
-		jsonFields = append(jsonFields, fmt.Sprintf(`"clip_wkt":"%s"`, clipWkt[0]))
+	if clipFeature, clipFeatureOk := params["clip_feature"]; clipFeatureOk && clipFeature[0] != "" {
+		jsonFields = append(jsonFields, fmt.Sprintf(`"clip_feature":"%s"`, clipFeature[0]))
 	}
 
 	if timeRaw, timeOK := params["time"]; timeOK {
