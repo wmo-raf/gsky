@@ -112,8 +112,6 @@ func CheckWMSVersion(version string) bool {
 
 func wktToFeature(geomWkt string) (*geo.Feature, error) {
 
-	var feat *geo.Feature
-
 	if strings.HasPrefix(geomWkt, "POLYGON") {
 
 		regExp := `^POLYGON\s+(?P<points>\(\(.*\)\))$`
@@ -131,7 +129,7 @@ func wktToFeature(geomWkt string) (*geo.Feature, error) {
 			return nil, err
 		}
 
-		feat = &geo.Feature{Type: "Polygon", Geometry: &poly}
+		feat := &geo.Feature{Type: "Polygon", Geometry: &poly}
 
 		return feat, nil
 
@@ -152,7 +150,7 @@ func wktToFeature(geomWkt string) (*geo.Feature, error) {
 			return nil, err
 		}
 
-		feat = &geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
+		feat := &geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
 
 		return feat, nil
 	}
@@ -179,6 +177,7 @@ func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig, mc *memcach
 				return nil, fmt.Errorf("error getting clip feature")
 			}
 
+			return feat, nil
 		}
 	}
 
