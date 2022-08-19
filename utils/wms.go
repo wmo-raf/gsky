@@ -1,5 +1,6 @@
 package utils
 
+// #include "gdal.h"
 //#include "gdal_alg.h"
 //#cgo pkg-config: gdal
 import "C"
@@ -66,7 +67,7 @@ type WMSParams struct {
 	Palette     *string      `json:"palette,omitempty"`
 	ColourScale *int         `json:"colour_scale,omitempty"`
 	BandExpr    *BandExpressions
-	ClipWkt     *string `json:"clip_wkt,omitempty"`
+	ClipFeature *string `json:"clip_feature,omitempty"`
 }
 
 // WMSRegexpMap maps WMS request parameters to
@@ -106,25 +107,25 @@ func CheckWMSVersion(version string) bool {
 	return version == "1.3.0" || version == "1.1.1"
 }
 
-// Wkt2Feature returns a geo.Feature from the passed wkt string.
-// If the wkt string is not a valid feature, attempt to find from preloaded geojson
-func Wkt2Feature(wkt string, config *Config) (*geo.Feature, error) {
+// ParamToGeoFeat returns a geo.Feature from the passed wkt string.
+// If the wkt string is not a valid feature, attempt to find from configured vector file
+func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig) (*geo.Feature, error) {
 
 	var feat *geo.Feature
 
-	if strings.HasPrefix(wkt, "POLYGON") {
+	if strings.HasPrefix(clipFeature, "POLYGON") {
 
 		regExp := `^POLYGON\s+(?P<points>\(\(.*\)\))$`
 
 		r := regexp.MustCompile(regExp)
-		match := r.FindStringSubmatch(wkt)
+		match := r.FindStringSubmatch(clipFeature)
 
 		if len(match) < 1 {
 			return nil, fmt.Errorf("invalid polygon")
 		}
 
 		poly := geo.Polygon{}
-		err := poly.UnmarshalWKT(wkt)
+		err := poly.UnmarshalWKT(clipFeature)
 		if err != nil {
 			return nil, err
 		}
@@ -133,19 +134,19 @@ func Wkt2Feature(wkt string, config *Config) (*geo.Feature, error) {
 
 		return feat, nil
 
-	} else if strings.HasPrefix(wkt, "MULTIPOLYGON") {
+	} else if strings.HasPrefix(clipFeature, "MULTIPOLYGON") {
 
 		regExp := `^MULTIPOLYGON\s+(?P<multipolygon>\(\(.*\)\))$`
 
 		r := regexp.MustCompile(regExp)
-		match := r.FindStringSubmatch(wkt)
+		match := r.FindStringSubmatch(clipFeature)
 
 		if len(match) < 1 {
 			return nil, fmt.Errorf("invalid multipolygon")
 		}
 
 		mPoly := geo.MultiPolygon{}
-		err := mPoly.UnmarshalWKT(wkt)
+		err := mPoly.UnmarshalWKT(clipFeature)
 		if err != nil {
 			return nil, err
 		}
@@ -155,11 +156,103 @@ func Wkt2Feature(wkt string, config *Config) (*geo.Feature, error) {
 		return feat, nil
 	}
 
-	if countryFeat, ok := config.WmsClipGeoms[wkt]; ok {
-		return &countryFeat, nil
+	if wmsClipConfig.VectorFile != "" && wmsClipConfig.LayerName != "" && wmsClipConfig.AttributeName != "" {
+		// try getting from vector file
+		feat, err := getFeatureGeometryFromVectorFile(wmsClipConfig, clipFeature)
+
+		if err != nil || feat == nil {
+			return nil, fmt.Errorf("error getting clip feature")
+		}
+
+		return feat, nil
 	}
 
-	return nil, fmt.Errorf("unsupported feature type")
+	return nil, fmt.Errorf("no matching feature found")
+}
+
+func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam string) (*geo.Feature, error) {
+
+	pathC := C.CString(wmsClipconfig.VectorFile)
+	defer C.free(unsafe.Pointer(pathC))
+
+	// open dataset
+	hDS := C.GDALOpenEx(pathC, C.GDAL_OF_VECTOR, nil, nil, nil)
+	defer C.GDALClose(hDS)
+
+	if hDS == nil {
+		return nil, fmt.Errorf("failed to open dataset at : %s", wmsClipconfig.VectorFile)
+	}
+
+	layerNameC := C.CString(wmsClipconfig.LayerName)
+	defer C.free(unsafe.Pointer(layerNameC))
+
+	// get layer
+	hLayer := C.GDALDatasetGetLayerByName(hDS, layerNameC)
+
+	if hLayer == nil {
+		return nil, fmt.Errorf("layer not found: %s", wmsClipconfig.LayerName)
+	}
+
+	filterStr := fmt.Sprintf("%s = '%s' ", wmsClipconfig.AttributeName, clipParam)
+
+	filterC := C.CString(filterStr)
+	defer C.free(unsafe.Pointer(filterC))
+
+	// set attribute filter¬
+	errCode := C.OGR_L_SetAttributeFilter(hLayer, filterC)
+
+	if errCode != C.OGRERR_NONE {
+		return nil, fmt.Errorf("error setting attribute filter")
+	}
+
+	// get first feature
+	hFeature := C.OGR_L_GetNextFeature(hLayer)
+
+	// no feature found
+	if hFeature == nil {
+		return nil, fmt.Errorf("feature not found for filter: %s", filterStr)
+	}
+
+	// return geometrr
+	hGeometry := C.OGR_F_GetGeometryRef(hFeature)
+
+	if hGeometry == nil {
+		return nil, fmt.Errorf("error gettting feature geometry")
+	}
+
+	wkbGeomType := C.OGR_G_GetGeometryType(hGeometry)
+
+	if wkbGeomType != C.wkbPolygon && wkbGeomType != C.wkbMultiPolygon {
+		return nil, fmt.Errorf("feature must be polygon or multipolygon")
+	}
+
+	geomWKTC := C.CString("")
+	defer C.free(unsafe.Pointer(geomWKTC))
+
+	C.OGR_G_ExportToWkt(hGeometry, &geomWKTC)
+
+	geomWKT := C.GoString(geomWKTC)
+
+	var feat geo.Feature
+
+	if wkbGeomType == C.wkbPolygon {
+
+		poly := geo.Polygon{}
+		err := poly.UnmarshalWKT(geomWKT)
+
+		if err != nil {
+			return nil, err
+		}
+		feat = geo.Feature{Type: "Polygon", Geometry: &poly}
+	} else {
+		mPoly := geo.MultiPolygon{}
+		err := mPoly.UnmarshalWKT(geomWKT)
+		if err != nil {
+			return nil, err
+		}
+		feat = geo.Feature{Type: "Polygon", Geometry: &mPoly}
+	}
+	return &feat, nil
 }
 
 // WMSParamsChecker checks and marshals the content

@@ -21,8 +21,8 @@ import (
 
 	goeval "github.com/edisonguo/govaluate"
 	"github.com/edisonguo/jet"
-	pb "github.com/nci/gsky/worker/gdalservice"
 	geo "github.com/nci/geometry"
+	pb "github.com/nci/gsky/worker/gdalservice"
 	geojson "github.com/paulmach/go.geojson"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -265,17 +265,22 @@ type CapabilityExtension struct {
 	ResourceURL string                        `json:"resource_url"`
 	Properties  []CapabilityExtensionProperty `json:"properties"`
 }
+type WmsClipConfig struct {
+	VectorFile    string `json:"vector_file"`
+	LayerName     string `json:"layer_name"`
+	AttributeName string `json:"attribute_name"`
+}
 
 // Config is the struct representing the configuration
 // of a WMS server. It contains information about the
 // file index API as well as the list of WMS layers that
 // can be served.
 type Config struct {
-	ServiceConfig ServiceConfig          `json:"service_config"`
-	Layers        []Layer                `json:"layers"`
-	Processes     []Process              `json:"processes"`
-	Extensions    []CapabilityExtension  `json:"extensions"`
-	WmsClipGeoms  map[string]geo.Feature `json:"wms_clip_geoms_wkt"`
+	ServiceConfig ServiceConfig         `json:"service_config"`
+	Layers        []Layer               `json:"layers"`
+	Processes     []Process             `json:"processes"`
+	Extensions    []CapabilityExtension `json:"extensions"`
+	WmsClipConfig WmsClipConfig         `json:"wms_clip_config"`
 }
 
 // ISOFormat is the string used to format Go ISO times
@@ -827,7 +832,6 @@ func LoadAllConfigFiles(searchPath string, wmsClipGeomsFile string, verbose bool
 		if config == nil {
 			continue
 		}
-		config.WmsClipGeoms = geomsConfigMap
 		for i := range config.Layers {
 			err = config.processFusionTimestamps(i, configMap)
 			if err != nil {
@@ -1298,10 +1302,10 @@ func (config *Config) Copy(r *http.Request) *Config {
 		newConf.Extensions[i] = ext
 	}
 
-	newConf.WmsClipGeoms = map[string]geo.Feature{}
-
-	for featId, feat := range config.WmsClipGeoms {
-		newConf.WmsClipGeoms[featId] = feat
+	newConf.WmsClipConfig = WmsClipConfig{
+		VectorFile:    config.WmsClipConfig.VectorFile,
+		LayerName:     config.WmsClipConfig.LayerName,
+		AttributeName: config.WmsClipConfig.AttributeName,
 	}
 
 	return newConf
