@@ -162,11 +162,7 @@ func wktToFeature(geomWkt string) (*geo.Feature, error) {
 // If the wkt string is not a valid feature, attempt to find from configured vector file
 func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig, mc *memcache.Client) (*geo.Feature, error) {
 
-	feat, err := wktToFeature(clipFeature)
-
-	if err != nil {
-		return nil, err
-	}
+	feat, _ := wktToFeature(clipFeature)
 
 	if feat == nil {
 		if wmsClipConfig.VectorFile != "" && wmsClipConfig.LayerName != "" && wmsClipConfig.AttributeName != "" {
@@ -181,7 +177,7 @@ func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig, mc *memcach
 		}
 	}
 
-	return feat, nil
+	return feat, fmt.Errorf("feature not found")
 }
 
 func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam string, mc *memcache.Client) (*geo.Feature, error) {
