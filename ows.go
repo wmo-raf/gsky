@@ -334,6 +334,8 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 			feat, err := utils.ParamToGeoFeat(*params.ClipFeature, conf.WmsClipConfig, mc)
 			if err == nil {
 				clipFeature = feat
+			} else {
+				fmt.Println(err)
 			}
 		}
 
