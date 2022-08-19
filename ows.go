@@ -34,6 +34,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nci/gomemcache/memcache"
 	"github.com/nci/gsky/metrics"
 	proc "github.com/nci/gsky/processor"
 	"github.com/nci/gsky/utils"
@@ -47,6 +48,7 @@ var configMap *sync.Map
 var mutex *sync.Mutex
 var fileResolver *utils.RuntimeFileResolver
 var builtinPalettes *utils.BuiltinPalettes
+var mc *memcache.Client
 var (
 	port            = flag.Int("p", 8080, "Server listening port.")
 	serverDataDir   = flag.String("data_dir", utils.DataDir, "Server data directory.")
@@ -54,6 +56,7 @@ var (
 	serverLogDir    = flag.String("log_dir", "", "Server log directory.")
 	validateConfig  = flag.Bool("check_conf", false, "Validate server config files.")
 	dumpConfig      = flag.Bool("dump_conf", false, "Dump server config files.")
+	mcURI           = flag.String("memcache", "", "memcache uri host:port")
 	verbose         = flag.Bool("v", false, "Verbose mode for more server outputs.")
 	version         = flag.Bool("version", false, "Get GSKY version")
 )
@@ -129,6 +132,11 @@ func init() {
 			log.Print(configJson)
 		}
 		os.Exit(0)
+	}
+
+	if *mcURI != "" {
+		// lazy connection; errors returned in .Get
+		mc = memcache.New(*mcURI)
 	}
 
 	configMap = &sync.Map{}
@@ -323,7 +331,7 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 		var clipFeature *geo.Feature
 
 		if params.ClipFeature != nil {
-			feat, err := utils.ParamToGeoFeat(*params.ClipFeature, conf.WmsClipConfig)
+			feat, err := utils.ParamToGeoFeat(*params.ClipFeature, conf.WmsClipConfig, mc)
 			if err == nil {
 				clipFeature = feat
 			}

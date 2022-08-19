@@ -6,7 +6,9 @@ package utils
 import "C"
 
 import (
+	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +21,7 @@ import (
 	"unsafe"
 
 	geo "github.com/nci/geometry"
+	"github.com/nci/gomemcache/memcache"
 )
 
 const ISOZeroTime = "0001-01-01T00:00:00.000Z"
@@ -107,25 +110,23 @@ func CheckWMSVersion(version string) bool {
 	return version == "1.3.0" || version == "1.1.1"
 }
 
-// ParamToGeoFeat returns a geo.Feature from the passed wkt string.
-// If the wkt string is not a valid feature, attempt to find from configured vector file
-func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig) (*geo.Feature, error) {
+func wktToFeature(geomWkt string) (*geo.Feature, error) {
 
 	var feat *geo.Feature
 
-	if strings.HasPrefix(clipFeature, "POLYGON") {
+	if strings.HasPrefix(geomWkt, "POLYGON") {
 
 		regExp := `^POLYGON\s+(?P<points>\(\(.*\)\))$`
 
 		r := regexp.MustCompile(regExp)
-		match := r.FindStringSubmatch(clipFeature)
+		match := r.FindStringSubmatch(geomWkt)
 
 		if len(match) < 1 {
 			return nil, fmt.Errorf("invalid polygon")
 		}
 
 		poly := geo.Polygon{}
-		err := poly.UnmarshalWKT(clipFeature)
+		err := poly.UnmarshalWKT(geomWkt)
 		if err != nil {
 			return nil, err
 		}
@@ -134,43 +135,78 @@ func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig) (*geo.Featu
 
 		return feat, nil
 
-	} else if strings.HasPrefix(clipFeature, "MULTIPOLYGON") {
+	} else if strings.HasPrefix(geomWkt, "MULTIPOLYGON") {
 
 		regExp := `^MULTIPOLYGON\s+(?P<multipolygon>\(\(.*\)\))$`
 
 		r := regexp.MustCompile(regExp)
-		match := r.FindStringSubmatch(clipFeature)
+		match := r.FindStringSubmatch(geomWkt)
 
 		if len(match) < 1 {
 			return nil, fmt.Errorf("invalid multipolygon")
 		}
 
 		mPoly := geo.MultiPolygon{}
-		err := mPoly.UnmarshalWKT(clipFeature)
+		err := mPoly.UnmarshalWKT(geomWkt)
 		if err != nil {
 			return nil, err
 		}
 
-		feat = &geo.Feature{Type: "Polygon", Geometry: &mPoly}
+		feat = &geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
 
 		return feat, nil
 	}
 
-	if wmsClipConfig.VectorFile != "" && wmsClipConfig.LayerName != "" && wmsClipConfig.AttributeName != "" {
-		// try getting from vector file
-		feat, err := getFeatureGeometryFromVectorFile(wmsClipConfig, clipFeature)
-
-		if err != nil || feat == nil {
-			return nil, fmt.Errorf("error getting clip feature")
-		}
-
-		return feat, nil
-	}
-
-	return nil, fmt.Errorf("no matching feature found")
+	return nil, fmt.Errorf("unsupported geom type")
 }
 
-func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam string) (*geo.Feature, error) {
+// ParamToGeoFeat returns a geo.Feature from the passed wkt string.
+// If the wkt string is not a valid feature, attempt to find from configured vector file
+func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig, mc *memcache.Client) (*geo.Feature, error) {
+
+	feat, err := wktToFeature(clipFeature)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if feat == nil {
+		if wmsClipConfig.VectorFile != "" && wmsClipConfig.LayerName != "" && wmsClipConfig.AttributeName != "" {
+			// try getting from vector file
+			feat, err := getFeatureGeometryFromVectorFile(wmsClipConfig, clipFeature, mc)
+
+			if err != nil || feat == nil {
+				return nil, fmt.Errorf("error getting clip feature")
+			}
+
+		}
+	}
+
+	return feat, nil
+}
+
+func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam string, mc *memcache.Client) (*geo.Feature, error) {
+
+	var hash string
+
+	if mc != nil {
+		pStr := fmt.Sprintf("%s-%s-%s-%s", wmsClipconfig.VectorFile, wmsClipconfig.LayerName, wmsClipconfig.AttributeName, clipParam)
+
+		buff := md5.Sum([]byte(pStr))
+		hash = hex.EncodeToString(buff[:])
+
+		if cached, ok := mc.Get(hash); ok == nil {
+			geomWKT := cached.Value
+
+			feat, err := wktToFeature(string(geomWKT))
+
+			if err != nil {
+				return nil, fmt.Errorf("error getting cached value")
+			}
+
+			return feat, nil
+		}
+	}
 
 	pathC := C.CString(wmsClipconfig.VectorFile)
 	defer C.free(unsafe.Pointer(pathC))
@@ -251,6 +287,13 @@ func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam str
 		}
 		feat = geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
 	}
+
+	// save to memcache
+	if mc != nil {
+		// don't care about errors; memcache may not necessarily retain this anyway
+		mc.Set(&memcache.Item{Key: hash, Value: []byte(geomWKT)})
+	}
+
 	return &feat, nil
 }
 
