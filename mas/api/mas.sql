@@ -183,7 +183,7 @@ create or replace function mas_view(gpath text)
   begin
 
     shard := coalesce(
-      (select sh_code from shards where gpath like concat(sh_path,'%') limit 1), ''
+      (select sh_code from shards where sh_path = gpath limit 1), ''
     );
 
     if octet_length(shard) > 0 and (select true from information_schema.schemata where schema_name = shard) then
