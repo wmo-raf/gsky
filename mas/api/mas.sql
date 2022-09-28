@@ -620,9 +620,9 @@ create or replace function mas_timestamps(
     end if;
 
     -- By default, we filter out all the future dates
-    if time_b is null then
-      time_b := (select now());
-    end if;
+    -- if time_b is null then
+    --   time_b := (select now());
+    -- end if;
 
     result := jsonb_build_object('timestamps', coalesce((
 
@@ -643,7 +643,7 @@ create or replace function mas_timestamps(
         where path_hash(gpath) = any(pa.pa_parents)
         and (namespace is null or po_name = any(namespace))
         and (time_a is null or po_stamps >= array[time_a])
-        and po_stamps <= array[time_b]
+        and (time_b is null or po_stamps <= array[time_b])
       ),
       stamps as (
         select distinct unnest(po_stamps)::timestamptz at time zone 'UTC' as po_stamps
@@ -653,7 +653,7 @@ create or replace function mas_timestamps(
       select jsonb_agg( to_char(po_stamps, 'YYYY-MM-DD"T"HH24:MI:SS".000Z"')  )
       from stamps
       where (time_a is null or po_stamps >= time_a)
-      and po_stamps <= time_b
+      and (time_b is null or po_stamps <= time_b)
 
      ), '[]'::jsonb), 'token', query_hash);
 
