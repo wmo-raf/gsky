@@ -576,6 +576,32 @@ create or replace function mas_refresh_codegens()
   end
 $$;
 
+-- Refresh all ows_caches
+create or replace function mas_refresh_caches()
+  returns boolean language plpgsql as $$
+  declare
+    shard text;
+    rec record;
+  begin
+    perform mas_reset();
+
+    for rec in select sh_path as gpath from shards loop
+      shard := mas_view(rec.gpath);
+      if shard = '' then
+        continue;
+      end if;
+
+      raise notice 'refresh caches for shard %', shard;
+      truncate ows_cache;
+
+      perform mas_reset();
+    end loop;
+
+    perform mas_reset();
+    return true;
+  end
+$$;
+
 -- Find all the time stamps overlapping with a given time range
 -- The time stamps are filtered by gpath, namespace
 

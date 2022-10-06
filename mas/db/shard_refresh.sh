@@ -25,5 +25,7 @@ select refresh_codegens();
 set search_path to public;
 alter schema ${shard} rename to ${shard}_old;
 alter schema ${shard}_tmp rename to ${shard};
+
+select mas_refresh_caches();
 EOD
 )
