@@ -1246,10 +1246,8 @@ func (config *Config) Copy(r *http.Request) *Config {
 		newConf.Extensions[i] = ext
 	}
 
-	newConf.WmsClipConfig = WmsClipConfig{
-		VectorFile:    config.WmsClipConfig.VectorFile,
-		LayerName:     config.WmsClipConfig.LayerName,
-		AttributeName: config.WmsClipConfig.AttributeName,
+	newConf.WmsGeojsonClipConfig = WmsGeojsonClipConfig{
+		GeojsonGetEndpoint: config.WmsGeojsonClipConfig.GeojsonGetEndpoint
 	}
 
 	return newConf
