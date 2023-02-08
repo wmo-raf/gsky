@@ -120,11 +120,12 @@ func GetGeojsonFeature(geojsonFeatureId string, wmsClipConfig WmsGeojsonClipConf
 	geojsonUrl := fmt.Sprintf("%s/%s", wmsClipConfig.GeojsonGetEndpoint, geojsonFeatureId)
 
 	r, err := http.Get(geojsonUrl)
-	defer r.Body.Close()
 
 	if err != nil {
 		return nil, fmt.Errorf("error getting geojson with id: %s using url: %s", geojsonFeatureId, geojsonUrl)
 	}
+
+	defer r.Body.Close()
 
 	b, err := io.ReadAll(r.Body)
 
@@ -132,7 +133,7 @@ func GetGeojsonFeature(geojsonFeatureId string, wmsClipConfig WmsGeojsonClipConf
 		return nil, fmt.Errorf("error reading geojson response")
 	}
 
-	featColl := geo.FeatureCollection{}
+	featColl := &geo.FeatureCollection{}
 
 	err = json.Unmarshal(b, featColl)
 
