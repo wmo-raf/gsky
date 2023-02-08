@@ -328,12 +328,12 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 
 	case "GetMap":
 
-		var clipFeature *geo.Feature
+		var geojsonClipFeature *geo.Feature
 
-		if params.ClipFeature != nil {
-			feat, err := utils.ParamToGeoFeat(*params.ClipFeature, conf.WmsClipConfig, mc)
-			if err == nil {
-				clipFeature = feat
+		if params.GeojsonFeatureId != nil {
+			feat, err := utils.GetGeojsonFeature(*params.GeojsonFeatureId, conf.WmsGeojsonClipConfig, mc)
+			if err == nil && feat != nil {
+				geojsonClipFeature = feat
 			} else {
 				fmt.Println(err)
 			}
@@ -495,7 +495,7 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 			Width:       *params.Width,
 			StartTime:   params.Time,
 			EndTime:     endTime,
-			ClipFeature: clipFeature,
+			ClipFeature: geojsonClipFeature,
 		}
 
 		if len(params.Axes) > 0 {

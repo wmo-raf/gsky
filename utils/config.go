@@ -263,10 +263,8 @@ type CapabilityExtension struct {
 	ResourceURL string                        `json:"resource_url"`
 	Properties  []CapabilityExtensionProperty `json:"properties"`
 }
-type WmsClipConfig struct {
-	VectorFile    string `json:"vector_file"`
-	LayerName     string `json:"layer_name"`
-	AttributeName string `json:"attribute_name"`
+type WmsGeojsonClipConfig struct {
+	GeojsonGetEndpoint string `json:"geojson_get_endpoint"`
 }
 
 // Config is the struct representing the configuration
@@ -274,11 +272,11 @@ type WmsClipConfig struct {
 // file index API as well as the list of WMS layers that
 // can be served.
 type Config struct {
-	ServiceConfig ServiceConfig         `json:"service_config"`
-	Layers        []Layer               `json:"layers"`
-	Processes     []Process             `json:"processes"`
-	Extensions    []CapabilityExtension `json:"extensions"`
-	WmsClipConfig WmsClipConfig         `json:"wms_clip_config"`
+	ServiceConfig        ServiceConfig         `json:"service_config"`
+	Layers               []Layer               `json:"layers"`
+	Processes            []Process             `json:"processes"`
+	Extensions           []CapabilityExtension `json:"extensions"`
+	WmsGeojsonClipConfig WmsGeojsonClipConfig  `json:"wms_geojson_clip_config"`
 }
 
 // ISOFormat is the string used to format Go ISO times

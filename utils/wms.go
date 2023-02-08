@@ -6,13 +6,12 @@ package utils
 import "C"
 
 import (
-	"crypto/md5"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -51,26 +50,26 @@ type AxisParam struct {
 // WMSParams contains the serialised version
 // of the parameters contained in a WMS request.
 type WMSParams struct {
-	Service     *string      `json:"service,omitempty"`
-	Request     *string      `json:"request,omitempty"`
-	CRS         *string      `json:"crs,omitempty"`
-	BBox        []float64    `json:"bbox,omitempty"`
-	Format      *string      `json:"format,omitempty"`
-	X           *int         `json:"x,omitempty"`
-	Y           *int         `json:"y,omitempty"`
-	Height      *int         `json:"height,omitempty"`
-	Width       *int         `json:"width,omitempty"`
-	Time        *time.Time   `json:"time,omitempty"`
-	Layers      []string     `json:"layers,omitempty"`
-	Styles      []string     `json:"styles,omitempty"`
-	Version     *string      `json:"version,omitempty"`
-	Axes        []*AxisParam `json:"axes,omitempty"`
-	Offset      *float64     `json:"offset,omitempty"`
-	Clip        *float64     `json:"clip,omitempty"`
-	Palette     *string      `json:"palette,omitempty"`
-	ColourScale *int         `json:"colour_scale,omitempty"`
-	BandExpr    *BandExpressions
-	ClipFeature *string `json:"clip_feature,omitempty"`
+	Service          *string      `json:"service,omitempty"`
+	Request          *string      `json:"request,omitempty"`
+	CRS              *string      `json:"crs,omitempty"`
+	BBox             []float64    `json:"bbox,omitempty"`
+	Format           *string      `json:"format,omitempty"`
+	X                *int         `json:"x,omitempty"`
+	Y                *int         `json:"y,omitempty"`
+	Height           *int         `json:"height,omitempty"`
+	Width            *int         `json:"width,omitempty"`
+	Time             *time.Time   `json:"time,omitempty"`
+	Layers           []string     `json:"layers,omitempty"`
+	Styles           []string     `json:"styles,omitempty"`
+	Version          *string      `json:"version,omitempty"`
+	Axes             []*AxisParam `json:"axes,omitempty"`
+	Offset           *float64     `json:"offset,omitempty"`
+	Clip             *float64     `json:"clip,omitempty"`
+	Palette          *string      `json:"palette,omitempty"`
+	ColourScale      *int         `json:"colour_scale,omitempty"`
+	BandExpr         *BandExpressions
+	GeojsonFeatureId *string `json:"geojson_feature_id,omitempty"`
 }
 
 // WMSRegexpMap maps WMS request parameters to
@@ -110,186 +109,43 @@ func CheckWMSVersion(version string) bool {
 	return version == "1.3.0" || version == "1.1.1"
 }
 
-func wktToFeature(geomWkt string) (*geo.Feature, error) {
+// GetGeojsonFeature returns a geo.Feature from the passed geojson id.
+// This is requested from the configured WmsGeojsonClipConfig.GeojsonGetEndpoint
+func GetGeojsonFeature(geojsonFeatureId string, wmsClipConfig WmsGeojsonClipConfig, mc *memcache.Client) (*geo.Feature, error) {
 
-	if strings.HasPrefix(geomWkt, "POLYGON") {
-
-		regExp := `^POLYGON\s+(?P<points>\(\(.*\)\))$`
-
-		r := regexp.MustCompile(regExp)
-		match := r.FindStringSubmatch(geomWkt)
-
-		if len(match) < 1 {
-			return nil, fmt.Errorf("invalid polygon")
-		}
-
-		poly := geo.Polygon{}
-		err := poly.UnmarshalWKT(geomWkt)
-		if err != nil {
-			return nil, err
-		}
-
-		feat := &geo.Feature{Type: "Polygon", Geometry: &poly}
-
-		return feat, nil
-
-	} else if strings.HasPrefix(geomWkt, "MULTIPOLYGON") {
-
-		regExp := `^MULTIPOLYGON\s+(?P<multipolygon>\(\(.*\)\))$`
-
-		r := regexp.MustCompile(regExp)
-		match := r.FindStringSubmatch(geomWkt)
-
-		if len(match) < 1 {
-			return nil, fmt.Errorf("invalid multipolygon")
-		}
-
-		mPoly := geo.MultiPolygon{}
-		err := mPoly.UnmarshalWKT(geomWkt)
-		if err != nil {
-			return nil, err
-		}
-
-		feat := &geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
-
-		return feat, nil
+	if wmsClipConfig.GeojsonGetEndpoint == "" {
+		return nil, fmt.Errorf("geojson endpoint not configured")
 	}
 
-	return nil, fmt.Errorf("unsupported geom type")
-}
+	geojsonUrl := fmt.Sprintf("%s/%s", wmsClipConfig.GeojsonGetEndpoint, geojsonFeatureId)
 
-// ParamToGeoFeat returns a geo.Feature from the passed wkt string.
-// If the wkt string is not a valid feature, attempt to find from configured vector file
-func ParamToGeoFeat(clipFeature string, wmsClipConfig WmsClipConfig, mc *memcache.Client) (*geo.Feature, error) {
+	r, err := http.Get(geojsonUrl)
+	defer r.Body.Close()
 
-	feat, _ := wktToFeature(clipFeature)
-
-	if feat == nil {
-		if wmsClipConfig.VectorFile != "" && wmsClipConfig.LayerName != "" && wmsClipConfig.AttributeName != "" {
-			// try getting from vector file
-			feat, err := getFeatureGeometryFromVectorFile(wmsClipConfig, clipFeature, mc)
-
-			if err != nil || feat == nil {
-				return nil, fmt.Errorf("error getting clip feature")
-			}
-
-			return feat, nil
-		}
+	if err != nil {
+		return nil, fmt.Errorf("error getting geojson with id: %s using url: %s", geojsonFeatureId, geojsonUrl)
 	}
 
-	return feat, fmt.Errorf("feature not found")
-}
+	b, err := io.ReadAll(r.Body)
 
-func getFeatureGeometryFromVectorFile(wmsClipconfig WmsClipConfig, clipParam string, mc *memcache.Client) (*geo.Feature, error) {
-
-	var hash string
-
-	if mc != nil {
-		pStr := fmt.Sprintf("%s-%s-%s-%s", wmsClipconfig.VectorFile, wmsClipconfig.LayerName, wmsClipconfig.AttributeName, clipParam)
-
-		buff := md5.Sum([]byte(pStr))
-		hash = hex.EncodeToString(buff[:])
-
-		if cached, ok := mc.Get(hash); ok == nil {
-			geomWKT := cached.Value
-
-			feat, err := wktToFeature(string(geomWKT))
-
-			if err != nil {
-				return nil, fmt.Errorf("error getting cached value")
-			}
-
-			return feat, nil
-		}
+	if err != nil {
+		return nil, fmt.Errorf("error reading geojson response")
 	}
 
-	pathC := C.CString(wmsClipconfig.VectorFile)
-	defer C.free(unsafe.Pointer(pathC))
+	featColl := geo.FeatureCollection{}
 
-	// open dataset
-	hDS := C.GDALOpenEx(pathC, C.GDAL_OF_VECTOR, nil, nil, nil)
-	defer C.GDALClose(hDS)
+	err = json.Unmarshal(b, featColl)
 
-	if hDS == nil {
-		return nil, fmt.Errorf("failed to open dataset at : %s", wmsClipconfig.VectorFile)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling geojson response")
 	}
 
-	layerNameC := C.CString(wmsClipconfig.LayerName)
-	defer C.free(unsafe.Pointer(layerNameC))
-
-	// get layer
-	hLayer := C.GDALDatasetGetLayerByName(hDS, layerNameC)
-
-	if hLayer == nil {
-		return nil, fmt.Errorf("layer not found: %s", wmsClipconfig.LayerName)
+	// return first feature. Only one feature is expected bacl
+	if len(featColl.Features) > 0 {
+		return &featColl.Features[0], nil
 	}
 
-	filterStr := fmt.Sprintf("%s = '%s' ", wmsClipconfig.AttributeName, clipParam)
-
-	filterC := C.CString(filterStr)
-	defer C.free(unsafe.Pointer(filterC))
-
-	// set attribute filter¬
-	errCode := C.OGR_L_SetAttributeFilter(hLayer, filterC)
-
-	if errCode != C.OGRERR_NONE {
-		return nil, fmt.Errorf("error setting attribute filter")
-	}
-
-	// get first feature
-	hFeature := C.OGR_L_GetNextFeature(hLayer)
-
-	// no feature found
-	if hFeature == nil {
-		return nil, fmt.Errorf("feature not found for filter: %s", filterStr)
-	}
-
-	// return geometrr
-	hGeometry := C.OGR_F_GetGeometryRef(hFeature)
-
-	if hGeometry == nil {
-		return nil, fmt.Errorf("error gettting feature geometry")
-	}
-
-	wkbGeomType := C.OGR_G_GetGeometryType(hGeometry)
-
-	if wkbGeomType != C.wkbPolygon && wkbGeomType != C.wkbMultiPolygon {
-		return nil, fmt.Errorf("feature must be polygon or multipolygon")
-	}
-
-	geomWKTC := C.CString("")
-	defer C.free(unsafe.Pointer(geomWKTC))
-
-	C.OGR_G_ExportToWkt(hGeometry, &geomWKTC)
-
-	geomWKT := C.GoString(geomWKTC)
-
-	var feat geo.Feature
-
-	if wkbGeomType == C.wkbPolygon {
-		poly := geo.Polygon{}
-		err := poly.UnmarshalWKT(geomWKT)
-
-		if err != nil {
-			return nil, err
-		}
-		feat = geo.Feature{Type: "Polygon", Geometry: &poly}
-	} else {
-		mPoly := geo.MultiPolygon{}
-		err := mPoly.UnmarshalWKT(geomWKT)
-		if err != nil {
-			return nil, err
-		}
-		feat = geo.Feature{Type: "MultiPolygon", Geometry: &mPoly}
-	}
-
-	// save to memcache
-	if mc != nil {
-		// don't care about errors; memcache may not necessarily retain this anyway
-		mc.Set(&memcache.Item{Key: hash, Value: []byte(geomWKT)})
-	}
-
-	return &feat, nil
+	return nil, fmt.Errorf("no feature found")
 }
 
 // WMSParamsChecker checks and marshals the content
@@ -365,8 +221,8 @@ func WMSParamsChecker(params map[string][]string, compREMap map[string]*regexp.R
 		}
 	}
 
-	if clipFeature, clipFeatureOk := params["clip_feature"]; clipFeatureOk && clipFeature[0] != "" {
-		jsonFields = append(jsonFields, fmt.Sprintf(`"clip_feature":"%s"`, clipFeature[0]))
+	if geojsonFeatureId, geojsonFeatureIdOk := params["geojson_feature_id"]; geojsonFeatureIdOk && geojsonFeatureId[0] != "" {
+		jsonFields = append(jsonFields, fmt.Sprintf(`"geojson_feature_id":"%s"`, geojsonFeatureId[0]))
 	}
 
 	if timeRaw, timeOK := params["time"]; timeOK {
