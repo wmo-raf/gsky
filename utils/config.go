@@ -1247,7 +1247,7 @@ func (config *Config) Copy(r *http.Request) *Config {
 	}
 
 	newConf.WmsGeojsonClipConfig = WmsGeojsonClipConfig{
-		GeojsonGetEndpoint: config.WmsGeojsonClipConfig.GeojsonGetEndpoint
+		GeojsonGetEndpoint: config.WmsGeojsonClipConfig.GeojsonGetEndpoint,
 	}
 
 	return newConf
