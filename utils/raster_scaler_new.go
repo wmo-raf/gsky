@@ -274,15 +274,17 @@ func scaleNew(r Raster, params ScaleParams) (*ByteRaster, error) {
 					value = float32(v)
 				}
 
-				if value < 0 {
+				c := uint8(math.Floor(float64(((value - clip) / trange * (float32(steps) - 1)))))
+
+				if c < 0 {
 					out.Data[i] = 0xFF
 					continue
-				} else if value > 255 {
+				} else if c > 255 {
 					out.Data[i] = 0xFF
 					continue
 				}
 
-				out.Data[i] = uint8(math.Floor(float64(((value - clip) / trange * (float32(steps) - 1)))))
+				out.Data[i] = c
 			}
 		}
 		return out, nil
