@@ -580,7 +580,7 @@ func serveWMS(ctx context.Context, params utils.WMSParams, conf *utils.Config, r
 				ColourScale: geoReq.ScaleParams.ColourScale,
 			}
 
-			norm, err := utils.Scale(res, scaleParams)
+			norm, err := utils.ScaleNew(res, scaleParams)
 			if err != nil {
 				Info.Printf("Error in the utils.Scale: %v\n", err)
 				metricsCollector.Info.HTTPStatus = 500
