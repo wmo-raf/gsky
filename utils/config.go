@@ -653,10 +653,12 @@ func LoadLayersFromConfig(dataSource string, confMap map[string]*Config, verbose
 	allConfigLayers := map[string]*ConfigLayers{}
 
 	for configNamespace, config := range confMap {
+		fmt.Println("Layers Length", configNamespace, len(config.Layers))
 		var configLayers ConfigLayers
 		if len(config.Layers) > 0 {
 			for _, layer := range config.Layers {
 				if layer.DataSource == dataSource {
+					fmt.Println("Layer", layer.Name, layer.DataSource)
 					configLayers.Layers = append(configLayers.Layers, layer)
 				}
 			}
