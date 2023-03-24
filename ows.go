@@ -1905,7 +1905,7 @@ func cataloguesHandler(w http.ResponseWriter, r *http.Request) {
 	staticRoot := filepath.Join(sroot, utils.CatalogueDirName)
 	templateRoot, _ := fileResolver.Lookup("templates")
 
-	catalogueHandler := utils.NewCatalogueHandler(cataloguePath, host, urlPathRoot, staticRoot, masAddress, templateRoot, *verbose, w)
+	catalogueHandler := utils.NewCatalogueHandler(cataloguePath, host, urlPathRoot, staticRoot, masAddress, templateRoot, confMap, *verbose, w)
 	status := catalogueHandler.Process()
 	if status == 1 {
 		fileHandler(w, r)

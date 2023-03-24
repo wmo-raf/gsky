@@ -607,6 +607,11 @@ type MASLayers struct {
 	Layers []Layer `json:"layers"`
 }
 
+type ConfigLayers struct {
+	Error  string  `json:"error"`
+	Layers []Layer `json:"layers"`
+}
+
 func LoadLayersFromMAS(masAddress, namespace string, verbose bool) (*MASLayers, error) {
 	queryOp := "generate_layers"
 	url := strings.Replace(fmt.Sprintf("http://%s/%s?%s", masAddress, namespace, queryOp), " ", "%20", -1)
@@ -642,6 +647,24 @@ func LoadLayersFromMAS(masAddress, namespace string, verbose bool) (*MASLayers, 
 		}
 	}
 	return masLayers, nil
+}
+
+func LoadLayersFromConfig(dataSource string, confMap map[string]*Config, verbose bool) (map[string]*ConfigLayers, error) {
+	var allConfigLayers map[string]*ConfigLayers
+
+	for configNamespace, config := range confMap {
+		var configLayers ConfigLayers
+		if len(config.Layers) > 0 {
+			for _, layer := range config.Layers {
+				if layer.DataSource == dataSource {
+					configLayers.Layers = append(configLayers.Layers, layer)
+				}
+			}
+		}
+		allConfigLayers[configNamespace] = &configLayers
+	}
+
+	return allConfigLayers, nil
 }
 
 func LoadConfigFromMAS(masAddress, namespace string, rootConfig *Config, verbose bool) (map[string]*Config, error) {

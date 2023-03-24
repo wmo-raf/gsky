@@ -23,9 +23,10 @@ type CatalogueHandler struct {
 	IndexTemplateRoot string
 	Verbose           bool
 	Output            http.ResponseWriter
+	ConfMap           map[string]*Config
 }
 
-func NewCatalogueHandler(path, urlHost, urlPathRoot, staticRoot, masAddress, indexTemplateRoot string, verbose bool, output http.ResponseWriter) *CatalogueHandler {
+func NewCatalogueHandler(path, urlHost, urlPathRoot, staticRoot, masAddress, indexTemplateRoot string, confMap map[string]*Config, verbose bool, output http.ResponseWriter) *CatalogueHandler {
 	return &CatalogueHandler{
 		Path:              path,
 		URLHost:           urlHost,
@@ -35,11 +36,13 @@ func NewCatalogueHandler(path, urlHost, urlPathRoot, staticRoot, masAddress, ind
 		IndexTemplateRoot: indexTemplateRoot,
 		Verbose:           verbose,
 		Output:            output,
+		ConfMap:           confMap,
 	}
 }
 
 const catalogueIndexFile = "index.html"
-const catalogueGSKYLayerFile = "gsky_layers.json"
+const catalogueGSKYRawLayerFile = "gsky_raw_layers.json"
+const catalogueGSKYConfigLayerFile = "gsky_config_layers.html"
 const catalogueTerriaCatalogFile = "terria_catalog.json"
 
 func (h *CatalogueHandler) Process() int {
@@ -53,8 +56,11 @@ func (h *CatalogueHandler) Process() int {
 	indexPath := h.Path
 	ext := filepath.Ext(indexPath)
 	if len(ext) > 0 {
-		if strings.HasSuffix(indexPath, catalogueGSKYLayerFile) {
+		if strings.HasSuffix(indexPath, catalogueGSKYRawLayerFile) {
 			h.renderGSKYLayerFile(indexPath)
+			return 0
+		} else if strings.HasSuffix(indexPath, catalogueGSKYConfigLayerFile) {
+			h.renderGSKYConfigLayersPage(indexPath)
 			return 0
 		} else if strings.HasSuffix(indexPath, catalogueTerriaCatalogFile) {
 			h.renderTerriaCatalogFile(indexPath)
@@ -80,7 +86,7 @@ func CheckIndexFile(staticRoot string, path string, verbose bool) string {
 	indexFile := path
 	if len(ext) > 0 {
 		isIndex := false
-		for _, f := range []string{catalogueIndexFile, catalogueGSKYLayerFile, catalogueTerriaCatalogFile} {
+		for _, f := range []string{catalogueIndexFile, catalogueGSKYRawLayerFile, catalogueGSKYConfigLayerFile, catalogueTerriaCatalogFile} {
 			if strings.HasSuffix(path, f) {
 				isIndex = true
 				break
@@ -152,6 +158,36 @@ func (h *CatalogueHandler) renderGSKYLayerFile(indexPath string) {
 		log.Printf("%v", err)
 		return
 	}
+}
+
+func (h *CatalogueHandler) renderGSKYConfigLayersPage(indexPath string) {
+
+	// get linked config file
+	// - loop all existing config files
+	// - loop all layers
+	// - look for matching data sources
+	// return the config namespace - for use in WMS GetCaps Link
+	// return layers with matching data source
+
+	// List of Layers with matching datasource
+
+	dataSource := filepath.Dir(indexPath)
+
+	fmt.Println(dataSource, "Datasource")
+
+	configLayersMap, err := LoadLayersFromConfig(dataSource, h.ConfMap, h.Verbose)
+
+	err = ExecuteWriteTemplateFile(h.Output, configLayersMap, filepath.Join(h.IndexTemplateRoot, "gsky_config_layers.tpl"))
+	if err != nil {
+		log.Printf("%v", err)
+		return
+	}
+
+	if err != nil {
+		log.Printf("renderGSKYLayerFile: %v", err)
+		return
+	}
+
 }
 
 func (h *CatalogueHandler) renderTerriaCatalogFile(indexPath string) {
@@ -259,12 +295,21 @@ func (h *CatalogueHandler) renderCataloguePage(indexPath string) {
 		}
 		rd.Endpoints = append(rd.Endpoints, terriaCatalog)
 
-		urlPath = filepath.Join(CatalogueDirName, indexPath, catalogueGSKYLayerFile)
-		gskyLayer := &anchor{
+		// raw layers
+		urlPath = filepath.Join(CatalogueDirName, indexPath, catalogueGSKYRawLayerFile)
+		gskyRawLayer := &anchor{
 			URL:   fmt.Sprintf("%s/%s", h.URLHost, urlPath),
-			Title: "GSKY Layers",
+			Title: "GSKY Raw Layers",
 		}
-		rd.Endpoints = append(rd.Endpoints, gskyLayer)
+		rd.Endpoints = append(rd.Endpoints, gskyRawLayer)
+
+		// layers linked with config files
+		urlPath = filepath.Join(CatalogueDirName, indexPath, catalogueGSKYRawLayerFile)
+		gskyConfigLayer := &anchor{
+			URL:   fmt.Sprintf("%s/%s", h.URLHost, urlPath),
+			Title: "GSKY Config Layers",
+		}
+		rd.Endpoints = append(rd.Endpoints, gskyConfigLayer)
 	}
 
 	for _, path := range gpathInfo.Paths {
