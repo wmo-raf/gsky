@@ -98,7 +98,7 @@ a:hover {
             <h2>{{ $configNamespace }}</h2>
             <ul class="sub-list">
                 {{ range $ilayer, $layer := $layers }}
-                    <div>{{ $layer.Name }}</div>
+                    <li>{{ $layer.Name }}</li>
                 {{ end }}
             </ul>
         </li>

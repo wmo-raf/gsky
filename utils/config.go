@@ -650,7 +650,7 @@ func LoadLayersFromMAS(masAddress, namespace string, verbose bool) (*MASLayers, 
 }
 
 func LoadLayersFromConfig(dataSource string, confMap map[string]*Config, verbose bool) (map[string]*ConfigLayers, error) {
-	var allConfigLayers map[string]*ConfigLayers
+	allConfigLayers := map[string]*ConfigLayers{}
 
 	for configNamespace, config := range confMap {
 		var configLayers ConfigLayers

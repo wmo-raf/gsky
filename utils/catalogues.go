@@ -304,7 +304,7 @@ func (h *CatalogueHandler) renderCataloguePage(indexPath string) {
 		rd.Endpoints = append(rd.Endpoints, gskyRawLayer)
 
 		// layers linked with config files
-		urlPath = filepath.Join(CatalogueDirName, indexPath, catalogueGSKYRawLayerFile)
+		urlPath = filepath.Join(CatalogueDirName, indexPath, catalogueGSKYConfigLayerFile)
 		gskyConfigLayer := &anchor{
 			URL:   fmt.Sprintf("%s/%s", h.URLHost, urlPath),
 			Title: "GSKY Config Layers",
