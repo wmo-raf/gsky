@@ -173,9 +173,11 @@ func (h *CatalogueHandler) renderGSKYConfigLayersPage(indexPath string) {
 
 	dataSource := filepath.Dir(indexPath)
 
-	fmt.Println(dataSource, "Datasource")
-
 	configLayersMap, err := LoadLayersFromConfig(dataSource, h.ConfMap, h.Verbose)
+
+	for namespace, config := range configLayersMap {
+		fmt.Println(namespace, len(config.Layers))
+	}
 
 	err = ExecuteWriteTemplateFile(h.Output, configLayersMap, filepath.Join(h.IndexTemplateRoot, "gsky_config_layers.tpl"))
 	if err != nil {
