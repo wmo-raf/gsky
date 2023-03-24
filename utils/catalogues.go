@@ -141,6 +141,18 @@ type renderData struct {
 	Title       string
 }
 
+type configLayer struct {
+	Name           string
+	ViewMapLink    *anchor
+	TimestampsLink *anchor
+}
+
+type configLayersRenderData struct {
+	Title               string
+	GetCapabilitiesLink *anchor
+	Layers              []*configLayer
+}
+
 func (h *CatalogueHandler) renderGSKYLayerFile(indexPath string) {
 	namespace := filepath.Dir(indexPath)
 	masLayers, err := LoadLayersFromMAS(h.MasAddress, namespace, h.Verbose)
@@ -175,7 +187,37 @@ func (h *CatalogueHandler) renderGSKYConfigLayersPage(indexPath string) {
 
 	configLayersMap, err := LoadLayersFromConfig(dataSource, h.ConfMap, h.Verbose)
 
-	err = ExecuteWriteTemplateFile(h.Output, configLayersMap, filepath.Join(h.IndexTemplateRoot, "gsky_config_layers.tpl"))
+	var rdMap []*configLayersRenderData
+
+	for configNamespace, layers := range configLayersMap {
+		var rd configLayersRenderData
+		rd.Title = configNamespace
+
+		getCapsurlPath := filepath.Join("ows", configNamespace)
+		rd.GetCapabilitiesLink = &anchor{
+			URL:   fmt.Sprintf("%s/%s?service=WMS&request=GetCapabilities&version=1.3.0", h.URLHost, getCapsurlPath),
+			Title: "WMS GetCapabilities",
+		}
+
+		var rdLayers []*configLayer
+
+		for _, layer := range layers {
+			timestampsPath := filepath.Join("mas", "/"+strings.Trim(layer.DataSource, "/"))
+			rdLayer := configLayer{
+				Name: layer.Name,
+				TimestampsLink: &anchor{
+					URL:   fmt.Sprintf("%s/%s?timestamps", h.URLHost, timestampsPath),
+					Title: "Layer Timestamps",
+				},
+			}
+			rdLayers = append(rdLayers, &rdLayer)
+		}
+
+		rd.Layers = rdLayers
+		rdMap = append(rdMap, &rd)
+	}
+
+	err = ExecuteWriteTemplateFile(h.Output, rdMap, filepath.Join(h.IndexTemplateRoot, "gsky_config_layers.tpl"))
 	if err != nil {
 		log.Printf("%v", err)
 		return

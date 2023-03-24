@@ -97,13 +97,15 @@ a:hover {
 </div>
 <div id="container">
   <ul class="list">
-    {{ range $configNamespace, $layers := . }}
+    {{ range $index, $config := . }}
         <li>
-            <h2>Configuration NameSpace: {{ $configNamespace }}</h2>
+            <h2> NameSpace: {{ $config.Title }}</h2>
+            <a href="{{ $config.GetCapabilitiesLink.URL }}">{{ $config.GetCapabilitiesLink.Title }}</a>
             <ul class="sub-list">
-                {{ range $ilayer, $layer := $layers }}
+                {{ range $ilayer, $layer := $config.Layers }}
                     <li> 
                       <div>Layer Name:  {{ $layer.Name }}</div>
+                      <div><a href="{{ $layer.TimestampsLink.URL }}">{{ $layer.TimestampsLink.Title}}</a></div>
                     </li>
                 {{ end }}
             </ul>
@@ -114,4 +116,5 @@ a:hover {
 
 </body>
 </html>
+
 
