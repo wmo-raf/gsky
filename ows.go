@@ -58,6 +58,7 @@ var (
 	dumpConfig      = flag.Bool("dump_conf", false, "Dump server config files.")
 	mcURI           = flag.String("memcache", "", "memcache uri host:port")
 	verbose         = flag.Bool("v", false, "Verbose mode for more server outputs.")
+	urlBase         = flag.String("url_base", "", "Advertise URLs relative to this server name and path. The default is to look this up from incoming request headers. Do not add a trailing slash")
 	version         = flag.Bool("version", false, "Get GSKY version")
 )
 
@@ -1894,6 +1895,11 @@ func cataloguesHandler(w http.ResponseWriter, r *http.Request) {
 	cataloguePath = "/" + strings.Trim(cataloguePath, "/")
 
 	host := utils.GetHostURL(r)
+
+	if *urlBase != "" {
+		host = *urlBase
+	}
+
 	urlPathRoot := utils.CatalogueDirName
 	sroot, _ := fileResolver.Lookup("static")
 	staticRoot := filepath.Join(sroot, utils.CatalogueDirName)
