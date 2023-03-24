@@ -69,6 +69,10 @@ ul {
     background-color: #eaecef;
 }
 
+.sub-list{
+  margin-left: 20px;
+}
+
 a {
     text-decoration: none;
     display: block;
@@ -95,10 +99,12 @@ a:hover {
   <ul class="list">
     {{ range $configNamespace, $layers := . }}
         <li>
-            <h2>{{ $configNamespace }}</h2>
+            <h2>Configuration NameSpace: {{ $configNamespace }}</h2>
             <ul class="sub-list">
                 {{ range $ilayer, $layer := $layers }}
-                    <li>{{ $layer.Name }}</li>
+                    <li> 
+                      <div>Layer Name:  {{ $layer.Name }}</div>
+                    </li>
                 {{ end }}
             </ul>
         </li>

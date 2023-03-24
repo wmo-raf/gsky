@@ -607,11 +607,6 @@ type MASLayers struct {
 	Layers []Layer `json:"layers"`
 }
 
-type ConfigLayers struct {
-	Error  string  `json:"error"`
-	Layers []Layer `json:"layers"`
-}
-
 func LoadLayersFromMAS(masAddress, namespace string, verbose bool) (*MASLayers, error) {
 	queryOp := "generate_layers"
 	url := strings.Replace(fmt.Sprintf("http://%s/%s?%s", masAddress, namespace, queryOp), " ", "%20", -1)
@@ -649,20 +644,21 @@ func LoadLayersFromMAS(masAddress, namespace string, verbose bool) (*MASLayers, 
 	return masLayers, nil
 }
 
-func LoadLayersFromConfig(dataSource string, confMap map[string]*Config, verbose bool) (map[string]*ConfigLayers, error) {
-	allConfigLayers := map[string]*ConfigLayers{}
+func LoadLayersFromConfig(dataSource string, confMap map[string]*Config, verbose bool) (map[string][]*Layer, error) {
+	allConfigLayers := map[string][]*Layer{}
 
 	for configNamespace, config := range confMap {
-		var configLayers ConfigLayers
+		var configLayers []*Layer
 		if len(config.Layers) > 0 {
 			for _, layer := range config.Layers {
 				if layer.DataSource == dataSource {
-					configLayers.Layers = append(configLayers.Layers, layer)
+					configLayers = append(configLayers, &layer)
 				}
 			}
 		}
-		if len(configLayers.Layers) > 0 {
-			allConfigLayers[configNamespace] = &configLayers
+
+		if len(configLayers) > 0 {
+			allConfigLayers[configNamespace] = configLayers
 		}
 	}
 
