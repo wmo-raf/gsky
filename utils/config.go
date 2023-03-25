@@ -654,11 +654,10 @@ func LoadLayersFromConfigByDataSource(dataSource string, confMap map[string]*Con
 				layerDataSource := "/" + strings.Trim(layer.DataSource, "/")
 				if layerDataSource == dataSource {
 					// skip if matches so as not to duplicate with raw gsky layers
-					if strings.Trim(layerDataSource, "/") == configNamespace {
-						continue
+					if strings.Trim(layerDataSource, "/") != configNamespace {
+						log.Printf("Layer to append: %s with Datasource: %s", layer.Name, layer.DataSource)
+						configLayers = append(configLayers, &layer)
 					}
-					fmt.Printf("Layer to append: %s with Datasource: %s", layer.Name, layer.DataSource)
-					configLayers = append(configLayers, &layer)
 				}
 			}
 		}
