@@ -185,11 +185,20 @@ func (h *CatalogueHandler) renderGSKYConfigLayersPage(indexPath string) {
 
 	dataSource := filepath.Dir(indexPath)
 
-	configLayersMap, err := LoadLayersFromConfig(dataSource, h.ConfMap, h.Verbose)
+	configLayersMap, err := LoadLayersFromConfigByDataSource(dataSource, h.ConfMap, h.Verbose)
 
 	var rdMap []*configLayersRenderData
 
 	for configNamespace, layers := range configLayersMap {
+
+		if h.Verbose {
+			log.Printf("For namespace: %s Found layers:", configNamespace)
+
+			for _, layer := range layers {
+				log.Printf("LayerName : %s DataSource: %s", layer.Name, layer.DataSource)
+			}
+		}
+
 		var rd configLayersRenderData
 		rd.Title = configNamespace
 
