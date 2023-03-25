@@ -644,12 +644,12 @@ func LoadLayersFromMAS(masAddress, namespace string, verbose bool) (*MASLayers, 
 	return masLayers, nil
 }
 
-func LoadLayersFromConfigByDataSource(dataSource string, confMap map[string]*Config, verbose bool) (map[string][]*Layer, error) {
-	allConfigLayers := map[string][]*Layer{}
+func LoadLayersFromConfigByDataSource(dataSource string, confMap map[string]*Config, verbose bool) (map[string][]Layer, error) {
+	allConfigLayers := map[string][]Layer{}
 
 	for configNamespace, config := range confMap {
 		if len(config.Layers) > 0 {
-			var configLayers []*Layer
+			var configLayers []Layer
 
 			// loop each layer
 			for _, layer := range config.Layers {
@@ -659,7 +659,7 @@ func LoadLayersFromConfigByDataSource(dataSource string, confMap map[string]*Con
 					// skip if matches so as not to duplicate with raw gsky layers
 					if strings.Trim(layerDataSource, "/") != configNamespace {
 						log.Printf("Layer to append: %s with Datasource: %s", layer.Name, layer.DataSource)
-						// configLayers = append(configLayers, &layer)
+						configLayers = append(configLayers, layer)
 					}
 				}
 			}
