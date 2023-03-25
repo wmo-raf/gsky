@@ -648,10 +648,13 @@ func LoadLayersFromConfigByDataSource(dataSource string, confMap map[string]*Con
 	allConfigLayers := map[string][]*Layer{}
 
 	for configNamespace, config := range confMap {
-		var configLayers []*Layer
 		if len(config.Layers) > 0 {
+			var configLayers []*Layer
+
+			// loop each layer
 			for _, layer := range config.Layers {
 				layerDataSource := "/" + strings.Trim(layer.DataSource, "/")
+				// match datasources
 				if layerDataSource == dataSource {
 					// skip if matches so as not to duplicate with raw gsky layers
 					if strings.Trim(layerDataSource, "/") != configNamespace {
@@ -660,10 +663,17 @@ func LoadLayersFromConfigByDataSource(dataSource string, confMap map[string]*Con
 					}
 				}
 			}
-		}
 
-		if len(configLayers) > 0 {
-			allConfigLayers[configNamespace] = configLayers
+			if len(configLayers) > 0 {
+				allConfigLayers[configNamespace] = configLayers
+			}
+		}
+	}
+
+	for ns, layers := range allConfigLayers {
+		log.Printf(ns)
+		for _, layer := range layers {
+			log.Printf(layer.Name)
 		}
 	}
 
