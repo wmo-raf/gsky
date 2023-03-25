@@ -197,6 +197,19 @@
         // Return the bounding box as an array
         return [minX, minY, maxX, maxY];
       }
+
+      function validateBoundingBox(bbox) {
+        const [minX, minY, maxX, maxY] = bbox;
+        
+        // Check if bounding box is valid
+        if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) {
+          // Return world extents
+          return [-180, -90, 180, 90];
+        }
+        
+        // Return the original bounding box
+        return bbox;
+      }
     
       const getDataBbox = (url) => {
         return fetch(url)
@@ -342,10 +355,11 @@
                     metadataUrl.search = decodeURIComponent(qs);
     
                     const bbox = await getDataBbox(metadataUrl);
+                    const validBbox = validateBoundingBox(bbox);
     
-                    if (bbox) {
+                    if (validBbox) {
                       // fit to bounds
-                      map.fitBounds(bbox, { padding: 20 });
+                      map.fitBounds(validBbox, { padding: 20 });
                     }
                   }
     
