@@ -112,6 +112,18 @@
         height: 400px;
         width: 100%;
       }
+
+      .timestamp-picker{
+        position: relative;
+      }
+      
+      .timestamp-picker select{
+        cursor: pointer;
+        position: absolute;
+        top:12px;
+        left: 12px;
+        z-index: 999;
+      }
     </style>
   </header>
   <body>
@@ -142,7 +154,12 @@
                     </div>
                     <div class="layer-preview">
                       <button class="map-toggle-btn">Show Map</button>
-                      <div class="map" id="sconc_dust" data-owsbaseurl="{{ $config.GetCapabilitiesLink.URL }}" data-timestampsurl="{{ $layer.TimestampsLink.URL }}"></div>
+                      <div class="map" id="{{ $layer.Name }}" data-owsbaseurl="{{ $config.GetCapabilitiesLink.URL }}" data-timestampsurl="{{ $layer.TimestampsLink.URL }}">
+                        <div class="timestamp-picker">
+                          <select>
+                          </select>
+                        </div>
+                      </div>
                    </div>
                   </div>
                 </li>
@@ -159,6 +176,43 @@
         return fetch(url)
           .then((res) => res.json())
           .then((data) => data.timestamps);
+      };
+    
+      function extractBoundingBox(wkt) {
+        // Extract the coordinates from the WKT string
+        const coords = wkt.match(/-?\d+\.\d+/g).map(parseFloat);
+    
+        // Find the min/max values for the x and y coordinates
+        let minX = Infinity,
+          minY = Infinity,
+          maxX = -Infinity,
+          maxY = -Infinity;
+        for (let i = 0; i < coords.length; i += 2) {
+          minX = Math.min(minX, coords[i]);
+          minY = Math.min(minY, coords[i + 1]);
+          maxX = Math.max(maxX, coords[i]);
+          maxY = Math.max(maxY, coords[i + 1]);
+        }
+    
+        // Return the bounding box as an array
+        return [minX, minY, maxX, maxY];
+      }
+    
+      const getDataBbox = (url) => {
+        return fetch(url)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.gdal && !!data.gdal.length) {
+              const polygon = data.gdal[0].polygon;
+              if (!polygon) {
+                return null;
+              }
+              const bbox = extractBoundingBox(polygon);
+              return bbox;
+            } else {
+              return null;
+            }
+          });
       };
     
       const defaultStyle = {
@@ -189,6 +243,29 @@
         ],
       };
     
+      const onTimeChange = (selectedTime, map, sourceId) => {
+        if (selectedTime && map && sourceId) {
+          const source = map.getSource(sourceId);
+          const tileUrl = new URL(source.tiles[0]);
+    
+          const qs = new URLSearchParams(tileUrl.search);
+          qs.set("time", selectedTime);
+          tileUrl.search = decodeURIComponent(qs);
+    
+          // adapted from https://github.com/mapbox/mapbox-gl-js/issues/2941#issuecomment-518631078
+          map.getSource(sourceId).tiles = [tileUrl.href];
+    
+          // Remove the tiles for a particular source
+          map.style.sourceCaches[sourceId].clearTiles();
+    
+          // Load the new tiles for the current viewport (map.transform -> viewport)
+          map.style.sourceCaches[sourceId].update(map.transform);
+    
+          // Force a repaint, so that the map will be repainted without you having to touch the map
+          map.triggerRepaint();
+        }
+      };
+    
       $(document).ready(function () {
         $(".map-toggle-btn").click(function () {
           const $mapEl = $(this).siblings(".map");
@@ -200,9 +277,12 @@
               $(this).html("Show Map");
             } else {
               const mapId = $mapEl.attr("id");
+              const timestampSelect = $($mapEl).find("select");
     
               const owsBaseUrl = $mapEl.data("owsbaseurl");
               const timestampsUrl = $mapEl.data("timestampsurl");
+              const metadataUrl = new URL(timestampsUrl);
+              metadataUrl.search = "";
     
               $mapEl.show();
     
@@ -215,7 +295,6 @@
               });
     
               const tileUrlBase = new URL(owsBaseUrl);
-              tileUrlBase.searchParams = { h: "hello" };
     
               const tileParams = {
                 service: "WMS",
@@ -233,22 +312,60 @@
               map.on("load", async () => {
                 const timeStamps = await fetchTimestamps(timestampsUrl);
     
-                tileParams.time = timeStamps[timeStamps.length - 1];
+                if (timeStamps && !!timeStamps.length) {
+                  // reverse to show the latest first
+                  timeStamps.reverse();
     
-                const qs = new URLSearchParams(tileParams).toString();
-                tileUrlBase.search = decodeURIComponent(qs);
+                  const latestTime = timeStamps[0];
     
-                map.addSource(mapId, {
-                  type: "raster",
-                  maxzoom: 5,
-                  tiles: [tileUrlBase.href],
-                });
+                  if (timestampSelect) {
+                    timestampSelect.val(latestTime);
     
-                map.addLayer({
-                  id: mapId,
-                  type: "raster",
-                  source: mapId,
-                });
+                    timeStamps.forEach((timestamp) => {
+                      $(timestampSelect).append(new Option(timestamp, timestamp));
+                    });
+    
+                    timestampSelect.on("change", function (e) {
+                      const selectedTime = e.target.value;
+                      onTimeChange(selectedTime, map, mapId);
+                    });
+                  }
+    
+                  if (latestTime) {
+                    const metadataParams = {
+                      intersects: true,
+                      metadata: "gdal",
+                      time: latestTime,
+                    };
+    
+                    const qs = new URLSearchParams(metadataParams).toString();
+                    metadataUrl.search = decodeURIComponent(qs);
+    
+                    const bbox = await getDataBbox(metadataUrl);
+    
+                    if (bbox) {
+                      // fit to bounds
+                      map.fitBounds(bbox, { padding: 20 });
+                    }
+                  }
+    
+                  tileParams.time = latestTime;
+    
+                  const qs = new URLSearchParams(tileParams).toString();
+                  tileUrlBase.search = decodeURIComponent(qs);
+    
+                  map.addSource(mapId, {
+                    type: "raster",
+                    maxzoom: 5,
+                    tiles: [tileUrlBase.href],
+                  });
+    
+                  map.addLayer({
+                    id: mapId,
+                    type: "raster",
+                    source: mapId,
+                  });
+                }
               });
     
               $(this).html("Hide Map");
@@ -256,6 +373,6 @@
           }
         });
       });
-    </script>    
+    </script>
   </body>
 </html>
